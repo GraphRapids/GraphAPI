@@ -1,0 +1,21 @@
+name: Secret Scan (Gitleaks)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitleaks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    uses: Faerkeren/python-workflow-standards/.github/workflows/python-gitleaks.yml@main

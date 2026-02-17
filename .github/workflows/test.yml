@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    uses: Faerkeren/python-workflow-standards/.github/workflows/python-tests.yml@main
+    with:
+      python-versions: '["3.10","3.11","3.12","3.13"]'
+      install-spec: ".[dev]"
+      coverage-target: "src/samplepkg"
+      coverage-threshold: 85
+      install-node: false
+      pytest-args: "-q"

@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: Faerkeren/python-workflow-standards/.github/workflows/python-ci.yml@main
+    with:
+      python-version: "3.12"
+      install-spec: ".[dev]"
+      compile-files: "main.py src/samplepkg/__init__.py src/samplepkg/__main__.py"
