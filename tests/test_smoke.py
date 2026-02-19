@@ -1,4 +1,4 @@
-from samplepkg import hello
+from graphapi import hello
 
 
 def test_hello():

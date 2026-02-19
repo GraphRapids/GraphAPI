@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "python-repo-template"
+name = "GraphAPI"
 version = "0.1.0"
-description = "Template boilerplate for public Python repositories."
+description = "Orchestrates the GraphRapids pipeline and exposes functionality via HTTP/WebSocket"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -24,10 +24,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Faerkeren/python-repo-template"
-Repository = "https://github.com/Faerkeren/python-repo-template"
-Issues = "https://github.com/Faerkeren/python-repo-template/issues"
-Changelog = "https://github.com/Faerkeren/python-repo-template/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/GraphRapids/GraphAPI"
+Repository = "https://github.com/GraphRapids/GraphAPI"
+Issues = "https://github.com/GraphRapids/GraphAPI/issues"
+Changelog = "https://github.com/GraphRapids/GraphAPI/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
@@ -41,7 +41,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [project.scripts]
-python-repo-template = "samplepkg.__main__:main"
+graphapi = "graphapi.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
