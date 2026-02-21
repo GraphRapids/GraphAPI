@@ -9,7 +9,13 @@ description = "Orchestrates the GraphRapids pipeline and exposes functionality v
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "GraphLoom>=0.1.0",
+    "GraphRender>=0.1.0",
+    "PyYAML>=6",
+]
 authors = [
     { name = "Faerkeren" },
 ]
@@ -32,6 +38,7 @@ Changelog = "https://github.com/GraphRapids/GraphAPI/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "httpx>=0.27",
 ]
 
 [tool.setuptools]

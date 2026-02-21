@@ -1,18 +1,19 @@
-# Python Repository Template
+# GraphAPI
 
-Template for consistent public Python repositories.
+FastAPI service that converts minimal GraphLoom YAML input into SVG output using GraphRender.
 
 ## Features
 
-- Standard repository governance files
-- Shared reusable CI/test/security/release workflows
-- Pyproject-based packaging and pytest setup
-- Branch protection baseline file
+- FastAPI HTTP service with OpenAPI docs (`/docs`)
+- `POST /render/svg` endpoint for YAML-to-SVG conversion
+- GraphLoom integration for validation and graph enrichment
+- GraphRender integration for SVG generation
+- Optional ELKJS layout pass before rendering
 
 ## Requirements
 
 - Python `>=3.10`
-- GitHub Actions enabled
+- Node.js available on `PATH` only if you use `layout: true`
 
 ## Installation
 
@@ -25,33 +26,82 @@ python -m pip install -e ".[dev]"
 
 ## Quick Start
 
-1. Use this repository as a GitHub template.
-2. Rename package path from `src/samplepkg` to your package name.
-3. Update `pyproject.toml` project name, description, URLs, and authors.
-4. Update security advisory links in issue template config and `SECURITY.md`.
-5. Keep workflow files and branch protection contexts aligned (`CI`, `Tests`, `Gitleaks`).
+1. Activate the virtual environment: `source .venv/bin/activate`.
+2. Start the API: `python -m graphapi`.
+3. Confirm health: `curl http://127.0.0.1:8000/healthz`.
+4. Open API docs: `http://127.0.0.1:8000/docs`.
+5. Render SVG:
+   ```bash
+   curl -sS -X POST http://127.0.0.1:8000/render/svg \
+     -H 'content-type: application/json' \
+     -d '{
+       "yaml":"nodes:\n  - A\n  - B\nlinks:\n  - A:eth0 -> B:eth1\n",
+       "layout": false
+     }'
+   ```
 
 ## CLI Reference
 
 ```bash
-python -m samplepkg
+python -m graphapi
 ```
+
+Environment variables:
+
+- `GRAPHAPI_HOST` (default: `0.0.0.0`)
+- `GRAPHAPI_PORT` (default: `8000`)
+- `PORT` (fallback if `GRAPHAPI_PORT` is unset)
 
 ## Python API
 
 ```python
-from samplepkg import hello
+from graphapi import render_svg_from_yaml
 
-print(hello())
+yaml_text = """
+nodes:
+  - A
+  - B
+links:
+  - A:eth0 -> B:eth1
+"""
+
+svg = render_svg_from_yaml(yaml_text, layout=False)
+print(svg[:120])
 ```
 
 ## Input Expectations
 
-Customize this section for your project domain.
+`POST /render/svg` expects JSON:
+
+- `yaml` (string, required): GraphLoom minimal graph YAML
+- `layout` (bool, optional, default `false`): run ELKJS before rendering
+- `elkjs_mode` (optional): `node`, `npm`, or `npx`
+- `node_cmd` (optional, default `node`): Node executable when layout is enabled
+
+Minimal YAML example:
+
+```yaml
+nodes:
+  - A
+  - B
+links:
+  - A:eth0 -> B:eth1
+```
+
+Response:
+
+- `200 OK` with `image/svg+xml` body on success
+- `400` for invalid YAML or GraphLoom validation errors
+- `500` for layout/render runtime failures
 
 ## Settings
 
-Customize this section for project-specific settings.
+Runtime settings are controlled by request fields and environment variables:
+
+- Request-level: `layout`, `elkjs_mode`, `node_cmd`
+- Process-level: `GRAPHAPI_HOST`, `GRAPHAPI_PORT`, `PORT`
+
+Graph defaults currently use `graphloom.sample_settings()` in code. If needed, this can be extended to accept custom GraphLoom settings files.
 
 ## Troubleshooting
 
@@ -59,20 +109,38 @@ Customize this section for project-specific settings.
 
 Recreate the CI environment with a fresh virtualenv and run `python -m pytest -q`.
 
+### Could not connect to server
+
+Make sure the server is running in one terminal:
+
+```bash
+source .venv/bin/activate
+python -m graphapi
+```
+
+Then test in another terminal:
+
+```bash
+curl -sS http://127.0.0.1:8000/healthz
+```
+
+### `layout: true` fails
+
+Install Node.js and ensure `node` is on `PATH`, or pass a custom executable via `node_cmd`.
+
 ## Development
 
 ```bash
 python -m pytest -q
-python -m py_compile main.py src/samplepkg/__init__.py src/samplepkg/__main__.py
+python -m py_compile main.py src/graphapi/__init__.py src/graphapi/__main__.py src/graphapi/app.py
 ```
 
 ## Project Layout
 
 ```text
 main.py
-src/samplepkg/
+src/graphapi/
 tests/
-examples/
 .github/workflows/
 ```
 
@@ -97,6 +165,9 @@ examples/
 - Python Packaging ecosystem (PyPA)
 - Pytest
 - GitHub Actions
+- FastAPI
+- GraphLoom
+- GraphRender
 
 ## Third-Party Notices
 
