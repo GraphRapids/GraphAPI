@@ -6,14 +6,14 @@ FastAPI service that converts minimal GraphLoom YAML input into SVG output using
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
 - `POST /render/svg` endpoint for YAML-to-SVG conversion
-- GraphLoom integration for validation and graph enrichment
+- GraphLoom integration for validation and default enrichment
+- ELKJS layout is always executed before rendering
 - GraphRender integration for SVG generation
-- Optional ELKJS layout pass before rendering
 
 ## Requirements
 
 - Python `>=3.10`
-- Node.js available on `PATH` only if you use `layout: true`
+- Node.js available on `PATH` (required for ELKJS layout)
 
 ## Installation
 
@@ -35,8 +35,7 @@ python -m pip install -e ".[dev]"
    curl -sS -X POST http://127.0.0.1:8000/render/svg \
      -H 'content-type: application/json' \
      -d '{
-       "yaml":"nodes:\n  - A\n  - B\nlinks:\n  - A:eth0 -> B:eth1\n",
-       "layout": false
+       "yaml":"nodes:\n  - A\n  - B\nlinks:\n  - A:eth0 -> B:eth1\n"
      }'
    ```
 
@@ -65,18 +64,15 @@ links:
   - A:eth0 -> B:eth1
 """
 
-svg = render_svg_from_yaml(yaml_text, layout=False)
+svg = render_svg_from_yaml(yaml_text)
 print(svg[:120])
 ```
 
 ## Input Expectations
 
-`POST /render/svg` expects JSON:
+`POST /render/svg` expects JSON with exactly one field:
 
 - `yaml` (string, required): GraphLoom minimal graph YAML
-- `layout` (bool, optional, default `false`): run ELKJS before rendering
-- `elkjs_mode` (optional): `node`, `npm`, or `npx`
-- `node_cmd` (optional, default `node`): Node executable when layout is enabled
 
 Minimal YAML example:
 
@@ -92,16 +88,16 @@ Response:
 
 - `200 OK` with `image/svg+xml` body on success
 - `400` for invalid YAML or GraphLoom validation errors
+- `422` for unexpected request fields
 - `500` for layout/render runtime failures
 
 ## Settings
 
 Runtime settings are controlled by request fields and environment variables:
 
-- Request-level: `layout`, `elkjs_mode`, `node_cmd`
 - Process-level: `GRAPHAPI_HOST`, `GRAPHAPI_PORT`, `PORT`
 
-Graph defaults currently use `graphloom.sample_settings()` in code. If needed, this can be extended to accept custom GraphLoom settings files.
+Graph defaults currently use `graphloom.sample_settings()` in code. The API then always runs ELKJS layout (`mode=node`, `node_cmd=node`) before rendering.
 
 ## Troubleshooting
 
@@ -124,9 +120,9 @@ Then test in another terminal:
 curl -sS http://127.0.0.1:8000/healthz
 ```
 
-### `layout: true` fails
+### Layout fails
 
-Install Node.js and ensure `node` is on `PATH`, or pass a custom executable via `node_cmd`.
+Install Node.js and ensure `node` is on `PATH`.
 
 ## Development
 
