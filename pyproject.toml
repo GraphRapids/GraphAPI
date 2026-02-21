@@ -12,9 +12,8 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.111",
     "uvicorn>=0.30",
-    "GraphLoom>=0.1.0",
+    "GraphLoom @ git+https://github.com/GraphRapids/GraphLoom.git@ed2520ae30a091c44489b5e77e1378d1ab4a3697",
     "GraphRender>=0.1.0",
-    "PyYAML>=6",
 ]
 authors = [
     { name = "Faerkeren" },

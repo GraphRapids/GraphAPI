@@ -1,14 +1,17 @@
 # GraphAPI
 
-FastAPI service that converts minimal GraphLoom YAML input into SVG output using GraphRender.
+FastAPI service that converts GraphLoom minimal JSON input into SVG output using GraphRender.
 
 ## Features
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
-- `POST /render/svg` endpoint for YAML-to-SVG conversion
+- `POST /render/svg` endpoint for JSON-to-SVG conversion
+- `POST /validate` endpoint for lightweight JSON validation
 - GraphLoom integration for validation and default enrichment
 - ELKJS layout is always executed before rendering
 - GraphRender integration for SVG generation
+- `GET /schemas/minimal-input.schema.json` to expose GraphLoom's official input schema
+- Configurable CORS, request timeout, and request size limits
 
 ## Requirements
 
@@ -29,13 +32,23 @@ python -m pip install -e ".[dev]"
 1. Activate the virtual environment: `source .venv/bin/activate`.
 2. Start the API: `python -m graphapi`.
 3. Confirm health: `curl http://127.0.0.1:8000/healthz`.
-4. Open API docs: `http://127.0.0.1:8000/docs`.
-5. Render SVG:
+4. Fetch GraphLoom schema: `curl http://127.0.0.1:8000/schemas/minimal-input.schema.json`.
+5. Validate JSON:
+   ```bash
+   curl -sS -X POST http://127.0.0.1:8000/validate \
+     -H 'content-type: application/json' \
+     -d '{
+       "nodes": ["A", "B"],
+       "links": ["A:eth0 -> B:eth1"]
+     }'
+   ```
+6. Render SVG:
    ```bash
    curl -sS -X POST http://127.0.0.1:8000/render/svg \
      -H 'content-type: application/json' \
      -d '{
-       "yaml":"nodes:\n  - A\n  - B\nlinks:\n  - A:eth0 -> B:eth1\n"
+       "nodes": ["A", "B"],
+       "links": ["A:eth0 -> B:eth1"]
      }'
    ```
 
@@ -50,52 +63,139 @@ Environment variables:
 - `GRAPHAPI_HOST` (default: `0.0.0.0`)
 - `GRAPHAPI_PORT` (default: `8000`)
 - `PORT` (fallback if `GRAPHAPI_PORT` is unset)
+- `GRAPHAPI_CORS_ORIGINS` (default: `*`, comma-separated list)
+- `GRAPHAPI_REQUEST_TIMEOUT_SECONDS` (default: `15`)
+- `GRAPHAPI_MAX_REQUEST_BYTES` (default: `1048576`)
 
 ## Python API
 
 ```python
-from graphapi import render_svg_from_yaml
+from graphloom import MinimalGraphIn
+from graphapi import render_svg_from_graph
 
-yaml_text = """
-nodes:
-  - A
-  - B
-links:
-  - A:eth0 -> B:eth1
-"""
+graph = MinimalGraphIn.model_validate({
+    "nodes": ["A", "B"],
+    "links": ["A:eth0 -> B:eth1"],
+})
 
-svg = render_svg_from_yaml(yaml_text)
+svg = render_svg_from_graph(graph)
 print(svg[:120])
 ```
 
 ## Input Expectations
 
-`POST /render/svg` expects JSON with exactly one field:
+`POST /render/svg` expects GraphLoom minimal graph JSON directly:
 
-- `yaml` (string, required): GraphLoom minimal graph YAML
+- `nodes` (array, optional): node names or node objects
+- `links` (array, optional): shorthand links or edge objects
 
-Minimal YAML example:
+Minimal JSON example:
 
-```yaml
-nodes:
-  - A
-  - B
-links:
-  - A:eth0 -> B:eth1
+```json
+{
+  "nodes": ["A", "B"],
+  "links": ["A:eth0 -> B:eth1"]
+}
 ```
+
+Schema for client-side validation:
+
+- `GET /schemas/minimal-input.schema.json`
+- `POST /validate`
 
 Response:
 
 - `200 OK` with `image/svg+xml` body on success
-- `400` for invalid YAML or GraphLoom validation errors
-- `422` for unexpected request fields
+- `422` for invalid request payload shape
+- `413` when request body exceeds size limit
+- `504` when request processing exceeds timeout
 - `500` for layout/render runtime failures
+
+## Live Preview Pattern
+
+Example browser-side pattern for editor-on-left / SVG-on-right:
+
+```html
+<textarea id="editor" spellcheck="false">
+{
+  "nodes": ["A", "B"],
+  "links": ["A:eth0 -> B:eth1"]
+}
+</textarea>
+<pre id="errors"></pre>
+<div id="preview"></div>
+
+<script type="module">
+  import Ajv from "https://cdn.jsdelivr.net/npm/ajv@8/dist/ajv.min.js";
+
+  const editor = document.getElementById("editor");
+  const errors = document.getElementById("errors");
+  const preview = document.getElementById("preview");
+
+  const schema = await fetch("http://127.0.0.1:8000/schemas/minimal-input.schema.json").then(r => r.json());
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+
+  let timer = null;
+  let inFlight = null;
+
+  function scheduleRender() {
+    clearTimeout(timer);
+    timer = setTimeout(renderLatest, 300); // debounce
+  }
+
+  async function renderLatest() {
+    let payload;
+    try {
+      payload = JSON.parse(editor.value);
+    } catch (err) {
+      errors.textContent = "Invalid JSON: " + err.message;
+      return;
+    }
+
+    if (!validate(payload)) {
+      errors.textContent = JSON.stringify(validate.errors, null, 2);
+      return;
+    }
+
+    errors.textContent = "";
+
+    if (inFlight) inFlight.abort(); // cancel stale request
+    inFlight = new AbortController();
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/render/svg", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: inFlight.signal,
+      });
+
+      if (!res.ok) {
+        errors.textContent = `Render failed: ${res.status} ${await res.text()}`;
+        return;
+      }
+
+      preview.innerHTML = await res.text();
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        errors.textContent = "Request error: " + err.message;
+      }
+    }
+  }
+
+  editor.addEventListener("input", scheduleRender);
+  scheduleRender();
+</script>
+```
 
 ## Settings
 
-Runtime settings are controlled by request fields and environment variables:
+Runtime settings are controlled by environment variables:
 
 - Process-level: `GRAPHAPI_HOST`, `GRAPHAPI_PORT`, `PORT`
+- CORS: `GRAPHAPI_CORS_ORIGINS`
+- Request controls: `GRAPHAPI_REQUEST_TIMEOUT_SECONDS`, `GRAPHAPI_MAX_REQUEST_BYTES`
 
 Graph defaults currently use `graphloom.sample_settings()` in code. The API then always runs ELKJS layout (`mode=node`, `node_cmd=node`) before rendering.
 
