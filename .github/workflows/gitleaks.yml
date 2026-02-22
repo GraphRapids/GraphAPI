@@ -19,3 +19,4 @@ concurrency:
 jobs:
   scan:
     uses: GraphRapids/python-workflow-standards/.github/workflows/python-gitleaks.yml@main
+    secrets: inherit
