@@ -18,4 +18,4 @@ concurrency:
 
 jobs:
   scan:
-    uses: Faerkeren/python-workflow-standards/.github/workflows/python-gitleaks.yml@main
+    uses: GraphRapids/python-workflow-standards/.github/workflows/python-gitleaks.yml@main

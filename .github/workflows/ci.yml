@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    uses: Faerkeren/python-workflow-standards/.github/workflows/python-ci.yml@main
+    uses: GraphRapids/python-workflow-standards/.github/workflows/python-ci.yml@main
     with:
       python-version: "3.12"
       install-spec: ".[dev]"

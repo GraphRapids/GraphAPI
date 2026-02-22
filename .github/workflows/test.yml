@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   pytest:
-    uses: Faerkeren/python-workflow-standards/.github/workflows/python-tests.yml@main
+    uses: GraphRapids/python-workflow-standards/.github/workflows/python-tests.yml@main
     with:
       python-versions: '["3.10","3.11","3.12","3.13"]'
       install-spec: ".[dev]"

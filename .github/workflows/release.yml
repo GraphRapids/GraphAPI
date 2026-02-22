@@ -14,4 +14,4 @@ concurrency:
 
 jobs:
   release:
-    uses: Faerkeren/python-workflow-standards/.github/workflows/python-release.yml@main
+    uses: GraphRapids/python-workflow-standards/.github/workflows/python-release.yml@main
