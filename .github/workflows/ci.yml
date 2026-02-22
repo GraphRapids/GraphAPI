@@ -20,4 +20,4 @@ jobs:
     with:
       python-version: "3.12"
       install-spec: ".[dev]"
-      compile-files: "main.py src/samplepkg/__init__.py src/samplepkg/__main__.py"
+      compile-files: "main.py src/graphapi/__init__.py src/graphapi/__main__.py src/graphapi/app.py"

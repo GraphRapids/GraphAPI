@@ -13,7 +13,7 @@ python -m pip install -e ".[dev]"
 
 ```bash
 python -m pytest -q
-python -m py_compile main.py src/samplepkg/__init__.py src/samplepkg/__main__.py
+python -m py_compile main.py src/graphapi/__init__.py src/graphapi/__main__.py src/graphapi/app.py
 ```
 
 ## Pull Requests

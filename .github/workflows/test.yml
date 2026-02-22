@@ -20,7 +20,7 @@ jobs:
     with:
       python-versions: '["3.10","3.11","3.12","3.13"]'
       install-spec: ".[dev]"
-      coverage-target: "src/samplepkg"
+      coverage-target: "src/graphapi"
       coverage-threshold: 85
       install-node: false
       pytest-args: "-q"

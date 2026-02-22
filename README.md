@@ -1,5 +1,10 @@
 # GraphAPI
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/GraphRapids/GraphAPI/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/GraphRapids/GraphAPI/actions/workflows/ci.yml)
+[![Tests](https://github.com/GraphRapids/GraphAPI/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/GraphRapids/GraphAPI/actions/workflows/test.yml)
+[![Gitleaks](https://github.com/GraphRapids/GraphAPI/actions/workflows/gitleaks.yml/badge.svg?branch=main)](https://github.com/GraphRapids/GraphAPI/actions/workflows/gitleaks.yml)
+
 FastAPI service that converts GraphLoom minimal JSON input into SVG output using GraphRender.
 
 ## Features
