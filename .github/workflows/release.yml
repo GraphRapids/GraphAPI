@@ -15,3 +15,4 @@ concurrency:
 jobs:
   release:
     uses: GraphRapids/python-workflow-standards/.github/workflows/python-release.yml@main
+    secrets: inherit

@@ -39,6 +39,9 @@ dev = [
     "pytest>=8",
     "httpx>=0.27",
 ]
+themes = [
+    "GraphTheme>=0.1.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

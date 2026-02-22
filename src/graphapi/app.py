@@ -30,8 +30,37 @@ app.add_middleware(
 )
 
 
-def render_svg_from_graph(graph: MinimalGraphIn) -> str:
-    canvas = build_canvas(graph, sample_settings())
+def _resolve_themed_settings(theme_id: str):
+    settings = sample_settings()
+    try:
+        from graphloom.theme import resolve_theme_settings
+    except Exception as exc:
+        if theme_id != "default":
+            raise RuntimeError(
+                "Theme selection requires GraphLoom with GraphTheme integration."
+            ) from exc
+        return settings
+    try:
+        return resolve_theme_settings(settings, theme_id)
+    except Exception as exc:
+        raise RuntimeError(f"Theme resolution failed: {exc}") from exc
+
+
+def _graphtheme_api():
+    try:
+        from graphtheme import get_theme_css
+        from graphtheme import get_theme_metrics
+        from graphtheme import get_theme_meta
+        from graphtheme import list_themes
+    except Exception as exc:
+        raise RuntimeError(
+            "GraphTheme package is required for theme API endpoints."
+        ) from exc
+    return list_themes, get_theme_meta, get_theme_css, get_theme_metrics
+
+
+def render_svg_from_graph(graph: MinimalGraphIn, *, theme_id: str = "default") -> str:
+    canvas = build_canvas(graph, _resolve_themed_settings(theme_id))
     payload = canvas.model_dump(by_alias=True, exclude_none=True)
 
     try:
@@ -40,7 +69,14 @@ def render_svg_from_graph(graph: MinimalGraphIn) -> str:
         raise RuntimeError(f"Graph layout failed: {exc}") from exc
 
     try:
-        return GraphRender(payload).to_string()
+        try:
+            return GraphRender(payload, theme_id=theme_id).to_string()
+        except TypeError:
+            if theme_id != "default":
+                raise RuntimeError(
+                    "Installed GraphRender does not support non-default theme ids."
+                )
+            return GraphRender(payload).to_string()
     except Exception as exc:
         raise RuntimeError(f"Graph render failed: {exc}") from exc
 
@@ -74,15 +110,57 @@ def minimal_input_schema() -> JSONResponse:
     return JSONResponse(content=json.loads(schema_text))
 
 
+@app.get("/themes")
+def list_themes() -> dict[str, object]:
+    try:
+        list_theme_meta, _, _, _ = _graphtheme_api()
+        return {"themes": [theme.__dict__ for theme in list_theme_meta()]}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/themes/{theme_id}")
+def get_theme(theme_id: str) -> dict[str, object]:
+    try:
+        _, get_theme_meta, _, _ = _graphtheme_api()
+        return get_theme_meta(theme_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/themes/{theme_id}/css")
+def get_theme_css(theme_id: str) -> Response:
+    try:
+        _, _, fetch_theme_css, _ = _graphtheme_api()
+        return Response(content=fetch_theme_css(theme_id), media_type="text/css")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/themes/{theme_id}/metrics")
+def get_theme_metrics(theme_id: str) -> dict[str, object]:
+    try:
+        _, _, _, fetch_theme_metrics = _graphtheme_api()
+        return fetch_theme_metrics(theme_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.post("/validate")
 def validate_graph(graph: MinimalGraphIn) -> dict[str, object]:
     return {"valid": True, "normalized": graph.model_dump(by_alias=True, exclude_none=True)}
 
 
 @app.post("/render/svg")
-def render_svg(graph: MinimalGraphIn) -> Response:
+def render_svg(graph: MinimalGraphIn, theme_id: str = "default") -> Response:
     try:
-        svg = render_svg_from_graph(graph)
+        svg = render_svg_from_graph(graph, theme_id=theme_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

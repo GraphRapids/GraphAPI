@@ -24,3 +24,4 @@ jobs:
       coverage-threshold: 85
       install-node: false
       pytest-args: "-q"
+    secrets: inherit

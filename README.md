@@ -11,7 +11,9 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
 - `POST /render/svg` endpoint for JSON-to-SVG conversion
+- Optional `theme_id` query parameter on `POST /render/svg` for theme selection
 - `POST /validate` endpoint for lightweight JSON validation
+- Theme catalog endpoints: `GET /themes`, `GET /themes/{id}`, `GET /themes/{id}/css`, `GET /themes/{id}/metrics`
 - GraphLoom integration for validation and default enrichment
 - ELKJS layout is always executed before rendering
 - GraphRender integration for SVG generation
@@ -55,6 +57,10 @@ python -m pip install -e ".[dev]"
        "nodes": ["A", "B"],
        "links": ["A:eth0 -> B:eth1"]
      }'
+   ```
+7. List themes:
+   ```bash
+   curl -sS http://127.0.0.1:8000/themes
    ```
 
 ## CLI Reference

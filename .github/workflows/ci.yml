@@ -21,3 +21,4 @@ jobs:
       python-version: "3.12"
       install-spec: ".[dev]"
       compile-files: "main.py src/graphapi/__init__.py src/graphapi/__main__.py src/graphapi/app.py"
+    secrets: inherit
