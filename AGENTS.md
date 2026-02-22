@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Scope
-- Work only in this repository (`GraphAPI`).
+- Work only in theses repositories (`GraphAPI`).
 - Keep changes focused on the user request.
 
 ## Environment
