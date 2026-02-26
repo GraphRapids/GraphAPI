@@ -10,8 +10,10 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 ## Features
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
+- Canonical runtime profile service (`/v1/profiles*`) with draft/publish lifecycle
 - `POST /render/svg` endpoint for JSON-to-SVG conversion
 - Optional `theme_id` query parameter on `POST /render/svg` for theme selection
+- Optional `profile_id` query parameter on `POST /render/svg` for profile-driven layout + render
 - `POST /validate` endpoint for lightweight JSON validation
 - Theme catalog endpoints: `GET /themes`, `GET /themes/{id}`, `GET /themes/{id}/css`, `GET /themes/{id}/metrics`
 - GraphLoom integration for validation and default enrichment
@@ -19,6 +21,46 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 - GraphRender integration for SVG generation
 - `GET /schemas/minimal-input.schema.json` to expose GraphLoom's official input schema
 - Configurable CORS, request timeout, and request size limits
+
+## Runtime Profile API (v1)
+
+GraphAPI is the canonical profile runtime service for GraphRapids consumers.
+
+### Endpoints
+
+- `GET /v1/profiles`
+- `GET /v1/profiles/{id}`
+- `GET /v1/profiles/{id}/bundle`
+- `POST /v1/profiles`
+- `PUT /v1/profiles/{id}`
+- `POST /v1/profiles/{id}/publish`
+- `GET /v1/autocomplete/catalog?profile_id=...`
+
+### Profile Schema (v1)
+
+Each bundle carries:
+
+- `schemaVersion`
+- `profileId`
+- `profileVersion`
+- `name`
+- `nodeTypes[]`
+- `linkTypes[]`
+- `elkSettings`
+- `renderCss`
+- `updatedAt`
+- `checksum`
+
+### Lifecycle
+
+- Create profile: creates draft `profileVersion = 1`.
+- Update profile: replaces draft and increments `profileVersion`.
+- Publish profile: copies the current draft into immutable published versions.
+- Resolve bundle:
+  - `stage=published` (default): latest published (or a specific `profile_version`)
+  - `stage=draft`: current mutable draft
+
+Consumers should use `profileVersion` + `checksum` for deterministic cache invalidation.
 
 ## Requirements
 
@@ -77,6 +119,8 @@ Environment variables:
 - `GRAPHAPI_CORS_ORIGINS` (default: `*`, comma-separated list)
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS` (default: `15`)
 - `GRAPHAPI_MAX_REQUEST_BYTES` (default: `1048576`)
+- `GRAPHAPI_PROFILE_STORE_PATH` (default: `~/.cache/graphapi/profiles.v1.json`)
+- `GRAPHAPI_DEFAULT_RENDER_CSS_PATH` (optional override for default profile CSS source)
 
 ## Python API
 

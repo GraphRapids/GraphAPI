@@ -32,7 +32,7 @@ def test_render_svg_from_json(monkeypatch):
 def test_render_svg_accepts_theme_id_query(monkeypatch):
     called = {"theme_id": None}
 
-    def fake_render(graph, *, theme_id="default"):
+    def fake_render(graph, *, theme_id="default", profile_bundle=None):
         called["theme_id"] = theme_id
         return "<svg/>"
 
@@ -76,7 +76,7 @@ def test_request_size_limit():
 
 
 def test_request_timeout(monkeypatch):
-    def slow_render(_graph, *, theme_id="default"):
+    def slow_render(_graph, *, theme_id="default", profile_bundle=None):
         import time
 
         time.sleep(0.05)
