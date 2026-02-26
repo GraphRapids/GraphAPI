@@ -8,7 +8,7 @@ GraphAPI is the FastAPI service layer that validates minimal graph input, applie
 - Expose a contract-first profile API with explicit schema versioning.
 - Keep request/response behavior predictable with clear error mapping.
 - Enforce runtime safety limits (request size, timeout, CORS).
-- Keep schema and theme endpoints aligned with GraphLoom and GraphTheme.
+- Keep schema and compatibility theme endpoints aligned with profile bundles.
 
 ## Package Snapshot
 - Python package: `graphapi`
@@ -25,10 +25,6 @@ Primary endpoints:
 - `POST /validate`
 - `POST /render/svg`
 - `GET /schemas/minimal-input.schema.json`
-- `GET /themes`
-- `GET /themes/{id}`
-- `GET /themes/{id}/css`
-- `GET /themes/{id}/metrics`
 - `GET /v1/profiles`
 - `GET /v1/profiles/{id}`
 - `GET /v1/profiles/{id}/bundle`
@@ -58,7 +54,7 @@ Environment variables:
 ## Dependencies and Integration
 - GraphLoom: input validation, enrichment, and layout integration.
 - GraphRender: SVG generation from laid-out graph data.
-- GraphTheme: theme catalog and CSS/metrics exposure.
+- Profile store: canonical source for runtime CSS and ELK settings.
 
 ## Testing Expectations
 - `python -m pytest -q`

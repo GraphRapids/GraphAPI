@@ -15,6 +15,28 @@ Use this file as a running log between work sessions.
 ## Current
 
 ### 2026-02-26
+- Summary: Removed external theme compatibility surfaces from API runtime and contracts.
+- Changes:
+  - Removed external theme package integration from API runtime path.
+  - Removed compatibility theme endpoints.
+  - Simplified `POST /render/svg` to accept profile selectors only (`profile_id`, `profile_stage`, `profile_version`).
+  - Removed optional theme package dependency from `pyproject.toml`.
+  - Updated tests for profile-only render behavior.
+- Files touched:
+  - `src/graphapi/app.py`
+  - `tests/test_profiles.py`
+  - `tests/test_smoke.py`
+  - `pyproject.toml`
+  - `README.md`
+  - `PROJECT_CONTEXT.md`
+  - `SESSION_NOTES.md`
+- Tests run:
+  - Pending.
+- Known issues: none.
+- Next steps:
+  - Keep OpenAPI and consumer docs aligned with profile-only runtime selectors.
+
+### 2026-02-26
 - Summary: Implemented Option B profile runtime architecture with v1 profile CRUD/publish API and profile-driven render/catalog behavior.
 - Changes:
   - Added versioned profile contract models (`schemaVersion=v1`) including `checksum` and `profileVersion`.

@@ -58,43 +58,13 @@ def _profile_http_error(exc: ProfileStoreError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
 
 
-def _resolve_themed_settings(theme_id: str):
-    settings = sample_settings()
-    try:
-        from graphloom.theme import resolve_theme_settings
-    except Exception as exc:
-        if theme_id != "default":
-            raise RuntimeError(
-                "Theme selection requires GraphLoom with GraphTheme integration."
-            ) from exc
-        return settings
-    try:
-        return resolve_theme_settings(settings, theme_id)
-    except Exception as exc:
-        raise RuntimeError(f"Theme resolution failed: {exc}") from exc
-
-
-def _graphtheme_api():
-    try:
-        from graphtheme import get_theme_css
-        from graphtheme import get_theme_metrics
-        from graphtheme import get_theme_meta
-        from graphtheme import list_themes
-    except Exception as exc:
-        raise RuntimeError(
-            "GraphTheme package is required for theme API endpoints."
-        ) from exc
-    return list_themes, get_theme_meta, get_theme_css, get_theme_metrics
-
-
 def render_svg_from_graph(
     graph: MinimalGraphIn,
     *,
-    theme_id: str = "default",
     profile_bundle: ProfileBundleV1 | None = None,
 ) -> str:
     if profile_bundle is None:
-        settings = _resolve_themed_settings(theme_id)
+        settings = sample_settings()
     else:
         settings = ElkSettings.model_validate(profile_bundle.elkSettings)
 
@@ -107,19 +77,15 @@ def render_svg_from_graph(
         raise RuntimeError(f"Graph layout failed: {exc}") from exc
 
     try:
-        if profile_bundle is None:
-            try:
-                return GraphRender(payload, theme_id=theme_id).to_string()
-            except TypeError:
-                if theme_id != "default":
-                    raise RuntimeError(
-                        "Installed GraphRender does not support non-default theme ids."
-                    )
-                return GraphRender(payload).to_string()
+        if profile_bundle is not None:
+            return GraphRender(
+                payload,
+                theme_css=profile_bundle.renderCss,
+                embed_theme=True,
+            ).to_string()
 
         return GraphRender(
             payload,
-            theme_css=profile_bundle.renderCss,
             embed_theme=True,
         ).to_string()
     except Exception as exc:
@@ -153,48 +119,6 @@ def minimal_input_schema() -> JSONResponse:
     schema_path = resources.files("graphloom").joinpath("schemas/minimal-input.schema.json")
     schema_text = schema_path.read_text(encoding="utf-8")
     return JSONResponse(content=json.loads(schema_text))
-
-
-@app.get("/themes")
-def list_themes() -> dict[str, object]:
-    try:
-        list_theme_meta, _, _, _ = _graphtheme_api()
-        return {"themes": [theme.__dict__ for theme in list_theme_meta()]}
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@app.get("/themes/{theme_id}")
-def get_theme(theme_id: str) -> dict[str, object]:
-    try:
-        _, get_theme_meta, _, _ = _graphtheme_api()
-        return get_theme_meta(theme_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@app.get("/themes/{theme_id}/css")
-def get_theme_css(theme_id: str) -> Response:
-    try:
-        _, _, fetch_theme_css, _ = _graphtheme_api()
-        return Response(content=fetch_theme_css(theme_id), media_type="text/css")
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@app.get("/themes/{theme_id}/metrics")
-def get_theme_metrics(theme_id: str) -> dict[str, object]:
-    try:
-        _, _, _, fetch_theme_metrics = _graphtheme_api()
-        return fetch_theme_metrics(theme_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get(
@@ -315,7 +239,6 @@ def validate_graph(graph: MinimalGraphIn) -> dict[str, object]:
 @app.post("/render/svg")
 def render_svg(
     graph: MinimalGraphIn,
-    theme_id: str = "default",
     profile_id: str | None = None,
     profile_stage: Literal["draft", "published"] = "published",
     profile_version: int | None = Query(default=None, ge=1),
@@ -334,7 +257,6 @@ def render_svg(
     try:
         svg = render_svg_from_graph(
             graph,
-            theme_id=theme_id,
             profile_bundle=bundle,
         )
     except RuntimeError as exc:
