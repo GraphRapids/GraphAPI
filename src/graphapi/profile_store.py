@@ -25,7 +25,7 @@ from .profile_contract import (
     ProfileSummaryV1,
     ProfileUpdateRequestV1,
     compute_autocomplete_checksum,
-    compute_iconset_resolution_checksum,
+    compute_icon_set_resolution_checksum,
     compute_profile_checksum,
     normalize_type_key,
     utcnow,
@@ -94,7 +94,7 @@ class ProfileStore:
                         p.draft_version,
                         p.draft_updated_at,
                         p.draft_checksum,
-                        p.draft_iconset_resolution_checksum,
+                        p.draft_icon_set_resolution_checksum,
                         (
                             SELECT MAX(v.profile_version)
                             FROM profile_published_versions v
@@ -115,7 +115,7 @@ class ProfileStore:
                         ),
                         updatedAt=self._parse_dt(str(row["draft_updated_at"])),
                         checksum=str(row["draft_checksum"]),
-                        iconsetResolutionChecksum=str(row["draft_iconset_resolution_checksum"]),
+                        iconSetResolutionChecksum=str(row["draft_icon_set_resolution_checksum"]),
                     )
                     for row in rows
                 ]
@@ -225,7 +225,7 @@ class ProfileStore:
                         profile_version,
                         updated_at,
                         checksum,
-                        iconset_resolution_checksum,
+                        icon_set_resolution_checksum,
                         payload
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
@@ -234,7 +234,7 @@ class ProfileStore:
                         draft.profileVersion,
                         self._serialize_dt(draft.updatedAt),
                         draft.checksum,
-                        draft.iconsetResolutionChecksum,
+                        draft.iconSetResolutionChecksum,
                         self._bundle_to_json(draft),
                     ),
                 )
@@ -313,8 +313,8 @@ class ProfileStore:
             profile_version=profile_version,
         )
 
-        resolved_entries, sources, key_sources, checksum = self._resolve_iconsets(
-            bundle.iconsetRefs,
+        resolved_entries, sources, key_sources, checksum = self._resolve_icon_sets(
+            bundle.iconSetRefs,
             bundle.iconConflictPolicy,
         )
 
@@ -346,7 +346,7 @@ class ProfileStore:
             profileId=bundle.profileId,
             profileVersion=bundle.profileVersion,
             profileChecksum=bundle.checksum,
-            iconsetResolutionChecksum=bundle.iconsetResolutionChecksum,
+            iconSetResolutionChecksum=bundle.iconSetResolutionChecksum,
             checksum=compute_autocomplete_checksum(bundle),
             nodeTypes=bundle.nodeTypes,
             linkTypes=bundle.linkTypes,
@@ -370,7 +370,7 @@ class ProfileStore:
                 draft_version INTEGER NOT NULL,
                 draft_updated_at TEXT NOT NULL,
                 draft_checksum TEXT NOT NULL,
-                draft_iconset_resolution_checksum TEXT NOT NULL,
+                draft_icon_set_resolution_checksum TEXT NOT NULL,
                 draft_payload TEXT NOT NULL
             );
 
@@ -379,7 +379,7 @@ class ProfileStore:
                 profile_version INTEGER NOT NULL,
                 updated_at TEXT NOT NULL,
                 checksum TEXT NOT NULL,
-                iconset_resolution_checksum TEXT NOT NULL,
+                icon_set_resolution_checksum TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 PRIMARY KEY (profile_id, profile_version),
                 FOREIGN KEY (profile_id) REFERENCES profiles(profile_id) ON DELETE CASCADE
@@ -414,7 +414,7 @@ class ProfileStore:
             ) from exc
         return normalized.model_dump(by_alias=True, exclude_none=True, mode="json")
 
-    def _resolve_iconsets(
+    def _resolve_icon_sets(
         self,
         refs,
         conflict_policy,
@@ -426,9 +426,9 @@ class ProfileStore:
         for ref in refs:
             try:
                 bundle = self._iconset_store.get_bundle(
-                    ref.iconsetId,
+                    ref.iconSetId,
                     stage="published",
-                    iconset_version=ref.iconsetVersion,
+                    icon_set_version=ref.iconSetVersion,
                 )
             except IconsetStoreError as exc:
                 if exc.code in {
@@ -440,11 +440,11 @@ class ProfileStore:
                         status_code=404,
                         code="PROFILE_ICONSET_REF_INVALID",
                         message=(
-                            f"Profile iconset reference '{ref.iconsetId}@{ref.iconsetVersion}' could not be resolved."
+                            f"Profile iconset reference '{ref.iconSetId}@{ref.iconSetVersion}' could not be resolved."
                         ),
                         details={
-                            "iconsetId": ref.iconsetId,
-                            "iconsetVersion": ref.iconsetVersion,
+                            "iconSetId": ref.iconSetId,
+                            "iconSetVersion": ref.iconSetVersion,
                             "cause": exc.code,
                         },
                     ) from exc
@@ -459,19 +459,19 @@ class ProfileStore:
                     status_code=409,
                     code="PROFILE_ICONSET_REF_INVALID",
                     message=(
-                        f"Profile iconset reference '{ref.iconsetId}@{ref.iconsetVersion}' checksum mismatch."
+                        f"Profile iconset reference '{ref.iconSetId}@{ref.iconSetVersion}' checksum mismatch."
                     ),
                     details={
-                        "iconsetId": ref.iconsetId,
-                        "iconsetVersion": ref.iconsetVersion,
+                        "iconSetId": ref.iconSetId,
+                        "iconSetVersion": ref.iconSetVersion,
                         "expectedChecksum": ref.checksum,
                         "actualChecksum": bundle.checksum,
                     },
                 )
 
             source = IconsetSourceRefV1(
-                iconsetId=bundle.iconsetId,
-                iconsetVersion=bundle.iconsetVersion,
+                iconSetId=bundle.iconSetId,
+                iconSetVersion=bundle.iconSetVersion,
                 checksum=bundle.checksum,
             )
             source_refs.append(source)
@@ -531,7 +531,7 @@ class ProfileStore:
             for key, payload in sorted(key_sources_payload.items(), key=lambda item: item[0])
         }
 
-        checksum = compute_iconset_resolution_checksum(
+        checksum = compute_icon_set_resolution_checksum(
             conflict_policy=conflict_policy,
             sources=[item.model_dump() for item in source_refs],
             resolved_entries=resolved_entries,
@@ -547,8 +547,8 @@ class ProfileStore:
         editable: ProfileEditableFieldsV1,
     ) -> ProfileBundleV1:
         normalized_elk_settings = self._validate_elk_settings(editable.elkSettings)
-        resolved_entries, source_refs, _key_sources, resolution_checksum = self._resolve_iconsets(
-            editable.iconsetRefs,
+        resolved_entries, source_refs, _key_sources, resolution_checksum = self._resolve_icon_sets(
+            editable.iconSetRefs,
             editable.iconConflictPolicy,
         )
 
@@ -560,10 +560,10 @@ class ProfileStore:
             "name": editable.name,
             "linkTypes": editable.linkTypes,
             "elkSettings": normalized_elk_settings,
-            "iconsetRefs": [
+            "iconSetRefs": [
                 {
-                    "iconsetId": source.iconsetId,
-                    "iconsetVersion": source.iconsetVersion,
+                    "iconSetId": source.iconSetId,
+                    "iconSetVersion": source.iconSetVersion,
                     "checksum": source.checksum,
                 }
                 for source in source_refs
@@ -571,7 +571,7 @@ class ProfileStore:
             "iconConflictPolicy": editable.iconConflictPolicy,
             "typeIconMap": resolved_entries,
             "nodeTypes": sorted(resolved_entries.keys()),
-            "iconsetResolutionChecksum": resolution_checksum,
+            "iconSetResolutionChecksum": resolution_checksum,
             "updatedAt": timestamp,
         }
         payload["checksum"] = compute_profile_checksum(payload)
@@ -592,7 +592,7 @@ class ProfileStore:
                 draft_version,
                 draft_updated_at,
                 draft_checksum,
-                draft_iconset_resolution_checksum,
+                draft_icon_set_resolution_checksum,
                 draft_payload
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
@@ -602,7 +602,7 @@ class ProfileStore:
                 bundle.profileVersion,
                 self._serialize_dt(bundle.updatedAt),
                 bundle.checksum,
-                bundle.iconsetResolutionChecksum,
+                bundle.iconSetResolutionChecksum,
                 self._bundle_to_json(bundle),
             ),
         )
@@ -614,7 +614,7 @@ class ProfileStore:
                     profile_version,
                     updated_at,
                     checksum,
-                    iconset_resolution_checksum,
+                    icon_set_resolution_checksum,
                     payload
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -623,7 +623,7 @@ class ProfileStore:
                     bundle.profileVersion,
                     self._serialize_dt(bundle.updatedAt),
                     bundle.checksum,
-                    bundle.iconsetResolutionChecksum,
+                    bundle.iconSetResolutionChecksum,
                     self._bundle_to_json(bundle),
                 ),
             )
@@ -637,7 +637,7 @@ class ProfileStore:
                 draft_version = ?,
                 draft_updated_at = ?,
                 draft_checksum = ?,
-                draft_iconset_resolution_checksum = ?,
+                draft_icon_set_resolution_checksum = ?,
                 draft_payload = ?
             WHERE profile_id = ?
             """,
@@ -646,7 +646,7 @@ class ProfileStore:
                 bundle.profileVersion,
                 self._serialize_dt(bundle.updatedAt),
                 bundle.checksum,
-                bundle.iconsetResolutionChecksum,
+                bundle.iconSetResolutionChecksum,
                 self._bundle_to_json(bundle),
                 bundle.profileId,
             ),

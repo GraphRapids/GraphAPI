@@ -12,7 +12,7 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
 - Canonical graph type service (`/v1/graph-types*`) with deterministic runtime resolution
 - Canonical render theme service (`/v1/themes*`) with draft/publish lifecycle
-- Canonical node-type iconset service (`/v1/iconsets*`) with draft/publish lifecycle
+- Canonical node-type icon set service (`/v1/icon-sets*`) with draft/publish lifecycle
 - `POST /render/svg` endpoint for JSON-to-SVG conversion
 - Optional `graph_type_id` and `theme_id` query parameters on `POST /render/svg` for runtime + render selection
 - `POST /validate` endpoint for lightweight JSON validation
@@ -40,6 +40,8 @@ GraphAPI is the canonical runtime service for GraphRapids consumers.
 - `GET /v1/layout-sets/{id}/bundle`
 - `POST /v1/layout-sets`
 - `PUT /v1/layout-sets/{id}`
+- `PUT /v1/layout-sets/{id}/entries/{key}`
+- `DELETE /v1/layout-sets/{id}/entries/{key}`
 - `POST /v1/layout-sets/{id}/publish`
 - `GET /v1/link-sets`
 - `GET /v1/link-sets/{id}`
@@ -56,15 +58,15 @@ GraphAPI is the canonical runtime service for GraphRapids consumers.
 - `PUT /v1/themes/{id}`
 - `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog?graph_type_id=...`
-- `GET /v1/iconsets`
-- `GET /v1/iconsets/{id}`
-- `GET /v1/iconsets/{id}/bundle`
-- `POST /v1/iconsets`
-- `PUT /v1/iconsets/{id}`
-- `PUT /v1/iconsets/{id}/entries/{key}`
-- `DELETE /v1/iconsets/{id}/entries/{key}`
-- `POST /v1/iconsets/{id}/publish`
-- `POST /v1/iconsets/resolve`
+- `GET /v1/icon-sets`
+- `GET /v1/icon-sets/{id}`
+- `GET /v1/icon-sets/{id}/bundle`
+- `POST /v1/icon-sets`
+- `PUT /v1/icon-sets/{id}`
+- `PUT /v1/icon-sets/{id}/entries/{key}`
+- `DELETE /v1/icon-sets/{id}/entries/{key}`
+- `POST /v1/icon-sets/{id}/publish`
+- `POST /v1/icon-sets/resolve`
 
 ### Graph Type Schema (v1)
 
@@ -75,7 +77,7 @@ Each bundle carries:
 - `graphTypeVersion`
 - `name`
 - `layoutSetRef`
-- `iconsetRefs[]`
+- `iconSetRefs[]`
 - `linkSetRef`
 - `iconConflictPolicy`
 - `nodeTypes[]`
@@ -83,7 +85,7 @@ Each bundle carries:
 - `typeIconMap`
 - `edgeTypeOverrides`
 - `elkSettings`
-- `iconsetResolutionChecksum`
+- `iconSetResolutionChecksum`
 - `runtimeChecksum`
 - `updatedAt`
 - `checksum`

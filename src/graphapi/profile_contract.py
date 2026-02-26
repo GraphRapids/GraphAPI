@@ -66,11 +66,11 @@ def normalize_theme_id(value: str) -> str:
     return theme_id
 
 
-def normalize_iconset_id(value: str) -> str:
-    iconset_id = str(value).strip().lower()
-    if not ICONSET_ID_PATTERN.fullmatch(iconset_id):
-        raise ValueError("iconsetId must match ^[a-z0-9][a-z0-9_-]{1,63}$")
-    return iconset_id
+def normalize_icon_set_id(value: str) -> str:
+    icon_set_id = str(value).strip().lower()
+    if not ICONSET_ID_PATTERN.fullmatch(icon_set_id):
+        raise ValueError("iconSetId must match ^[a-z0-9][a-z0-9_-]{1,63}$")
+    return icon_set_id
 
 
 def normalize_type_key(value: str) -> str:
@@ -159,12 +159,12 @@ class IconsetEditableFieldsV1(BaseModel):
 class IconsetCreateRequestV1(IconsetEditableFieldsV1):
     model_config = ConfigDict(extra="forbid")
 
-    iconsetId: str
+    iconSetId: str
 
-    @field_validator("iconsetId")
+    @field_validator("iconSetId")
     @classmethod
-    def validate_iconset_id(cls, value: str) -> str:
-        return normalize_iconset_id(value)
+    def validate_icon_set_id(cls, value: str) -> str:
+        return normalize_icon_set_id(value)
 
 
 class IconsetUpdateRequestV1(IconsetEditableFieldsV1):
@@ -175,8 +175,8 @@ class IconsetBundleV1(IconsetEditableFieldsV1):
     model_config = ConfigDict(extra="forbid")
 
     schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
-    iconsetId: str
-    iconsetVersion: int = Field(ge=1)
+    iconSetId: str
+    iconSetVersion: int = Field(ge=1)
     updatedAt: datetime
     checksum: str = Field(min_length=64, max_length=64)
 
@@ -185,7 +185,7 @@ class IconsetSummaryV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
-    iconsetId: str
+    iconSetId: str
     name: str
     draftVersion: int
     publishedVersion: int | None = None
@@ -197,7 +197,7 @@ class IconsetRecordV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
-    iconsetId: str
+    iconSetId: str
     draft: IconsetBundleV1
     publishedVersions: list[IconsetBundleV1] = Field(default_factory=list)
 
@@ -205,14 +205,14 @@ class IconsetRecordV1(BaseModel):
 class IconsetListResponseV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    iconsets: list[IconsetSummaryV1]
+    iconSets: list[IconsetSummaryV1]
 
 
 class IconsetSourceRefV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    iconsetId: str
-    iconsetVersion: int = Field(ge=1)
+    iconSetId: str
+    iconSetVersion: int = Field(ge=1)
     checksum: str = Field(min_length=64, max_length=64)
 
 
@@ -228,20 +228,20 @@ class NodeTypeSourceV1(BaseModel):
 class IconsetResolutionRefV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    iconsetId: str
+    iconSetId: str
     stage: Literal["draft", "published"] = "published"
-    iconsetVersion: int | None = Field(default=None, ge=1)
+    iconSetVersion: int | None = Field(default=None, ge=1)
 
-    @field_validator("iconsetId")
+    @field_validator("iconSetId")
     @classmethod
-    def validate_iconset_id(cls, value: str) -> str:
-        return normalize_iconset_id(value)
+    def validate_icon_set_id(cls, value: str) -> str:
+        return normalize_icon_set_id(value)
 
 
 class IconsetResolveRequestV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    iconsetRefs: list[IconsetResolutionRefV1] = Field(min_length=1, max_length=MAX_ICONSET_REFS)
+    iconSetRefs: list[IconsetResolutionRefV1] = Field(min_length=1, max_length=MAX_ICONSET_REFS)
     conflictPolicy: IconConflictPolicy = "reject"
 
 
@@ -259,14 +259,14 @@ class IconsetResolutionResultV1(BaseModel):
 class ProfileIconsetRefV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    iconsetId: str
-    iconsetVersion: int = Field(ge=1)
+    iconSetId: str
+    iconSetVersion: int = Field(ge=1)
     checksum: str | None = Field(default=None, min_length=64, max_length=64)
 
-    @field_validator("iconsetId")
+    @field_validator("iconSetId")
     @classmethod
-    def validate_iconset_id(cls, value: str) -> str:
-        return normalize_iconset_id(value)
+    def validate_icon_set_id(cls, value: str) -> str:
+        return normalize_icon_set_id(value)
 
     @field_validator("checksum")
     @classmethod
@@ -282,7 +282,7 @@ class ProfileEditableFieldsV1(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     linkTypes: list[str] = Field(min_length=1, max_length=MAX_LINK_TYPES)
     elkSettings: dict[str, Any]
-    iconsetRefs: list[ProfileIconsetRefV1] = Field(min_length=1, max_length=MAX_ICONSET_REFS)
+    iconSetRefs: list[ProfileIconsetRefV1] = Field(min_length=1, max_length=MAX_ICONSET_REFS)
     iconConflictPolicy: IconConflictPolicy = "reject"
 
     @field_validator("name")
@@ -313,23 +313,23 @@ class ProfileEditableFieldsV1(BaseModel):
 
         return normalized
 
-    @field_validator("iconsetRefs")
+    @field_validator("iconSetRefs")
     @classmethod
     def validate_iconset_refs(cls, values: list[ProfileIconsetRefV1]) -> list[ProfileIconsetRefV1]:
         if not values:
-            raise ValueError("iconsetRefs must not be empty.")
+            raise ValueError("iconSetRefs must not be empty.")
 
         seen: set[tuple[str, int]] = set()
         for item in values:
-            key = (item.iconsetId, item.iconsetVersion)
+            key = (item.iconSetId, item.iconSetVersion)
             if key in seen:
                 raise ValueError(
-                    f"Duplicate iconset reference '{item.iconsetId}@{item.iconsetVersion}'."
+                    f"Duplicate iconset reference '{item.iconSetId}@{item.iconSetVersion}'."
                 )
             seen.add(key)
 
         if len(values) > MAX_ICONSET_REFS:
-            raise ValueError(f"iconsetRefs exceeds max size {MAX_ICONSET_REFS}.")
+            raise ValueError(f"iconSetRefs exceeds max size {MAX_ICONSET_REFS}.")
 
         return values
 
@@ -357,7 +357,7 @@ class ProfileBundleV1(ProfileEditableFieldsV1):
     profileVersion: int = Field(ge=1)
     nodeTypes: list[str] = Field(min_length=1, max_length=MAX_RESOLVED_TYPE_KEYS)
     typeIconMap: dict[str, str] = Field(min_length=1, max_length=MAX_RESOLVED_TYPE_KEYS)
-    iconsetResolutionChecksum: str = Field(min_length=64, max_length=64)
+    iconSetResolutionChecksum: str = Field(min_length=64, max_length=64)
     updatedAt: datetime
     checksum: str = Field(min_length=64, max_length=64)
 
@@ -411,7 +411,7 @@ class ProfileSummaryV1(BaseModel):
     publishedVersion: int | None = None
     updatedAt: datetime
     checksum: str
-    iconsetResolutionChecksum: str
+    iconSetResolutionChecksum: str
 
 
 class ProfileRecordV1(BaseModel):
@@ -450,7 +450,7 @@ class AutocompleteCatalogResponseV1(BaseModel):
     profileId: str
     profileVersion: int = Field(ge=1)
     profileChecksum: str = Field(min_length=64, max_length=64)
-    iconsetResolutionChecksum: str = Field(min_length=64, max_length=64)
+    iconSetResolutionChecksum: str = Field(min_length=64, max_length=64)
     checksum: str = Field(min_length=64, max_length=64)
     nodeTypes: list[str]
     linkTypes: list[str]
@@ -548,8 +548,8 @@ class ThemeStoreDocumentV1(BaseModel):
 def canonical_iconset_bundle_payload(bundle_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "schemaVersion": PROFILE_SCHEMA_VERSION,
-        "iconsetId": bundle_data["iconsetId"],
-        "iconsetVersion": bundle_data["iconsetVersion"],
+        "iconSetId": bundle_data["iconSetId"],
+        "iconSetVersion": bundle_data["iconSetVersion"],
         "name": bundle_data["name"],
         "entries": dict(sorted(bundle_data["entries"].items(), key=lambda item: item[0])),
     }
@@ -570,8 +570,8 @@ def canonical_iconset_resolution_payload(
         "conflictPolicy": conflict_policy,
         "sources": [
             {
-                "iconsetId": item["iconsetId"],
-                "iconsetVersion": item["iconsetVersion"],
+                "iconSetId": item["iconSetId"],
+                "iconSetVersion": item["iconSetVersion"],
                 "checksum": item["checksum"],
             }
             for item in sources
@@ -580,7 +580,7 @@ def canonical_iconset_resolution_payload(
     }
 
 
-def compute_iconset_resolution_checksum(
+def compute_icon_set_resolution_checksum(
     *,
     conflict_policy: IconConflictPolicy,
     sources: list[dict[str, Any]],
@@ -604,17 +604,17 @@ def canonical_profile_bundle_payload(bundle_data: dict[str, Any]) -> dict[str, A
         "nodeTypes": sorted(bundle_data["nodeTypes"]),
         "linkTypes": list(bundle_data["linkTypes"]),
         "elkSettings": bundle_data["elkSettings"],
-        "iconsetRefs": [
+        "iconSetRefs": [
             {
-                "iconsetId": item["iconsetId"],
-                "iconsetVersion": item["iconsetVersion"],
+                "iconSetId": item["iconSetId"],
+                "iconSetVersion": item["iconSetVersion"],
                 "checksum": item.get("checksum"),
             }
-            for item in bundle_data["iconsetRefs"]
+            for item in bundle_data["iconSetRefs"]
         ],
         "iconConflictPolicy": bundle_data["iconConflictPolicy"],
         "typeIconMap": dict(sorted(bundle_data["typeIconMap"].items(), key=lambda item: item[0])),
-        "iconsetResolutionChecksum": bundle_data["iconsetResolutionChecksum"],
+        "iconSetResolutionChecksum": bundle_data["iconSetResolutionChecksum"],
     }
 
 
@@ -628,7 +628,7 @@ def compute_autocomplete_checksum(bundle: ProfileBundleV1) -> str:
         "profileId": bundle.profileId,
         "profileVersion": bundle.profileVersion,
         "profileChecksum": bundle.checksum,
-        "iconsetResolutionChecksum": bundle.iconsetResolutionChecksum,
+        "iconSetResolutionChecksum": bundle.iconSetResolutionChecksum,
         "nodeTypes": bundle.nodeTypes,
         "linkTypes": bundle.linkTypes,
     }

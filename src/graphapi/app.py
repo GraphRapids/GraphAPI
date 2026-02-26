@@ -23,6 +23,7 @@ from .graph_type_contract import (
     GraphTypeUpdateRequestV1,
     LayoutSetBundleV1,
     LayoutSetCreateRequestV1,
+    LayoutSetEntryUpsertRequestV1,
     LayoutSetListResponseV1,
     LayoutSetRecordV1,
     LayoutSetUpdateRequestV1,
@@ -32,7 +33,7 @@ from .graph_type_contract import (
     LinkSetListResponseV1,
     LinkSetRecordV1,
     LinkSetUpdateRequestV1,
-    compute_iconset_resolution_checksum,
+    compute_icon_set_resolution_checksum,
 )
 from .graphtype_defaults import default_graph_type_create_request
 from .graphtype_store import GraphTypeStore, GraphTypeStoreError
@@ -216,18 +217,18 @@ def minimal_input_schema() -> JSONResponse:
     return JSONResponse(content=json.loads(schema_text))
 
 
-@app.get("/v1/iconsets", response_model=IconsetListResponseV1, tags=["iconsets"])
-def list_iconsets_v1() -> IconsetListResponseV1:
+@app.get("/v1/icon-sets", response_model=IconsetListResponseV1, tags=["icon-sets"])
+def list_icon_sets_v1() -> IconsetListResponseV1:
     try:
-        return iconset_store.list_iconsets()
+        return iconset_store.list_icon_sets()
     except IconsetStoreError as exc:
         raise _iconset_http_error(exc) from exc
 
 
 @app.get(
-    "/v1/iconsets/{id}",
+    "/v1/icon-sets/{id}",
     response_model=IconsetRecordV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def get_iconset_v1(id: str) -> IconsetRecordV1:
@@ -238,27 +239,27 @@ def get_iconset_v1(id: str) -> IconsetRecordV1:
 
 
 @app.get(
-    "/v1/iconsets/{id}/bundle",
+    "/v1/icon-sets/{id}/bundle",
     response_model=IconsetBundleV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def get_iconset_bundle_v1(
     id: str,
     stage: Literal["draft", "published"] = Query(default="published"),
-    iconset_version: int | None = Query(default=None, ge=1),
+    icon_set_version: int | None = Query(default=None, ge=1),
 ) -> IconsetBundleV1:
     try:
-        return iconset_store.get_bundle(id, stage=stage, iconset_version=iconset_version)
+        return iconset_store.get_bundle(id, stage=stage, icon_set_version=icon_set_version)
     except IconsetStoreError as exc:
         raise _iconset_http_error(exc) from exc
 
 
 @app.post(
-    "/v1/iconsets",
+    "/v1/icon-sets",
     response_model=IconsetRecordV1,
     status_code=201,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def create_iconset_v1(request: IconsetCreateRequestV1) -> IconsetRecordV1:
@@ -269,9 +270,9 @@ def create_iconset_v1(request: IconsetCreateRequestV1) -> IconsetRecordV1:
 
 
 @app.put(
-    "/v1/iconsets/{id}",
+    "/v1/icon-sets/{id}",
     response_model=IconsetRecordV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def update_iconset_v1(id: str, request: IconsetUpdateRequestV1) -> IconsetRecordV1:
@@ -282,9 +283,9 @@ def update_iconset_v1(id: str, request: IconsetUpdateRequestV1) -> IconsetRecord
 
 
 @app.put(
-    "/v1/iconsets/{id}/entries/{key}",
+    "/v1/icon-sets/{id}/entries/{key}",
     response_model=IconsetRecordV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def upsert_iconset_entry_v1(id: str, key: str, request: IconsetEntryUpsertRequestV1) -> IconsetRecordV1:
@@ -295,9 +296,9 @@ def upsert_iconset_entry_v1(id: str, key: str, request: IconsetEntryUpsertReques
 
 
 @app.delete(
-    "/v1/iconsets/{id}/entries/{key}",
+    "/v1/icon-sets/{id}/entries/{key}",
     response_model=IconsetRecordV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def delete_iconset_entry_v1(id: str, key: str) -> IconsetRecordV1:
@@ -308,9 +309,9 @@ def delete_iconset_entry_v1(id: str, key: str) -> IconsetRecordV1:
 
 
 @app.post(
-    "/v1/iconsets/{id}/publish",
+    "/v1/icon-sets/{id}/publish",
     response_model=IconsetBundleV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 def publish_iconset_v1(id: str) -> IconsetBundleV1:
@@ -321,25 +322,25 @@ def publish_iconset_v1(id: str) -> IconsetBundleV1:
 
 
 @app.post(
-    "/v1/iconsets/resolve",
+    "/v1/icon-sets/resolve",
     response_model=IconsetResolutionResultV1,
-    tags=["iconsets"],
+    tags=["icon-sets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def resolve_iconsets_v1(request: IconsetResolveRequestV1) -> IconsetResolutionResultV1:
+def resolve_icon_sets_v1(request: IconsetResolveRequestV1) -> IconsetResolutionResultV1:
     resolved_entries: dict[str, str] = {}
     sources = []
     key_sources: dict[str, dict] = {}
 
-    for ref in request.iconsetRefs:
+    for ref in request.iconSetRefs:
         try:
-            bundle = iconset_store.get_bundle(ref.iconsetId, stage=ref.stage, iconset_version=ref.iconsetVersion)
+            bundle = iconset_store.get_bundle(ref.iconSetId, stage=ref.stage, icon_set_version=ref.iconSetVersion)
         except IconsetStoreError as exc:
             raise _iconset_http_error(exc) from exc
 
         source = {
-            "iconsetId": bundle.iconsetId,
-            "iconsetVersion": bundle.iconsetVersion,
+            "iconSetId": bundle.iconSetId,
+            "iconSetVersion": bundle.iconSetVersion,
             "checksum": bundle.checksum,
         }
         sources.append(source)
@@ -396,7 +397,7 @@ def resolve_iconsets_v1(request: IconsetResolveRequestV1) -> IconsetResolutionRe
         raise HTTPException(status_code=400, detail=body.model_dump()["error"])
 
     sorted_entries = dict(sorted(resolved_entries.items(), key=lambda item: item[0]))
-    checksum = compute_iconset_resolution_checksum(
+    checksum = compute_icon_set_resolution_checksum(
         conflict_policy=request.conflictPolicy,
         sources=sources,
         resolved_entries=sorted_entries,
@@ -474,6 +475,36 @@ def create_layout_set_v1(request: LayoutSetCreateRequestV1) -> LayoutSetRecordV1
 def update_layout_set_v1(id: str, request: LayoutSetUpdateRequestV1) -> LayoutSetRecordV1:
     try:
         return layout_set_store.update_layout_set(id, request)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.put(
+    "/v1/layout-sets/{id}/entries/{key}",
+    response_model=LayoutSetRecordV1,
+    tags=["layout-sets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def upsert_layout_set_entry_v1(
+    id: str,
+    key: str,
+    request: LayoutSetEntryUpsertRequestV1,
+) -> LayoutSetRecordV1:
+    try:
+        return layout_set_store.upsert_layout_set_entry(id, key, request)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.delete(
+    "/v1/layout-sets/{id}/entries/{key}",
+    response_model=LayoutSetRecordV1,
+    tags=["layout-sets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_layout_set_entry_v1(id: str, key: str) -> LayoutSetRecordV1:
+    try:
+        return layout_set_store.delete_layout_set_entry(id, key)
     except LayoutSetStoreError as exc:
         raise _layout_set_http_error(exc) from exc
 
@@ -838,9 +869,9 @@ def render_svg(
         headers["X-GraphAPI-Graph-Type-Version"] = str(graph_type_bundle.graphTypeVersion)
         headers["X-GraphAPI-Graph-Type-Checksum"] = graph_type_bundle.checksum
         headers["X-GraphAPI-Graph-Type-Runtime-Checksum"] = graph_type_bundle.runtimeChecksum
-        headers["X-GraphAPI-Iconset-Resolution-Checksum"] = graph_type_bundle.iconsetResolutionChecksum
-        headers["X-GraphAPI-Iconset-Sources"] = ",".join(
-            [f"{ref.iconsetId}@{ref.iconsetVersion}" for ref in graph_type_bundle.iconsetRefs]
+        headers["X-GraphAPI-Icon-Set-Resolution-Checksum"] = graph_type_bundle.iconSetResolutionChecksum
+        headers["X-GraphAPI-Icon-Set-Sources"] = ",".join(
+            [f"{ref.iconSetId}@{ref.iconSetVersion}" for ref in graph_type_bundle.iconSetRefs]
         )
     if theme_bundle is not None:
         headers["X-GraphAPI-Theme-Id"] = theme_bundle.themeId

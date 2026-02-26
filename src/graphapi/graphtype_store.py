@@ -27,7 +27,7 @@ from .graph_type_contract import (
     compute_autocomplete_checksum,
     compute_graph_type_checksum,
     compute_graph_type_runtime_checksum,
-    compute_iconset_resolution_checksum,
+    compute_icon_set_resolution_checksum,
     normalize_type_key,
 )
 from .iconset_store import IconsetStore, IconsetStoreError
@@ -116,7 +116,7 @@ class GraphTypeStore:
                         g.draft_updated_at,
                         g.draft_checksum,
                         g.draft_runtime_checksum,
-                        g.draft_iconset_resolution_checksum,
+                        g.draft_icon_set_resolution_checksum,
                         (
                             SELECT MAX(v.graph_type_version)
                             FROM graph_type_published_versions v
@@ -139,7 +139,7 @@ class GraphTypeStore:
                             updatedAt=datetime.fromisoformat(str(row["draft_updated_at"])),
                             checksum=str(row["draft_checksum"]),
                             runtimeChecksum=str(row["draft_runtime_checksum"]),
-                            iconsetResolutionChecksum=str(row["draft_iconset_resolution_checksum"]),
+                            iconSetResolutionChecksum=str(row["draft_icon_set_resolution_checksum"]),
                         )
                         for row in rows
                     ]
@@ -246,7 +246,7 @@ class GraphTypeStore:
                         updated_at,
                         checksum,
                         runtime_checksum,
-                        iconset_resolution_checksum,
+                        icon_set_resolution_checksum,
                         payload
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -256,7 +256,7 @@ class GraphTypeStore:
                         draft.updatedAt.isoformat(),
                         draft.checksum,
                         draft.runtimeChecksum,
-                        draft.iconsetResolutionChecksum,
+                        draft.iconSetResolutionChecksum,
                         self._bundle_to_json(draft),
                     ),
                 )
@@ -334,8 +334,8 @@ class GraphTypeStore:
             stage=stage,
             graph_type_version=graph_type_version,
         )
-        resolved_entries, sources, key_sources, _ = self._resolve_iconsets(
-            bundle.iconsetRefs,
+        resolved_entries, sources, key_sources, _ = self._resolve_icon_sets(
+            bundle.iconSetRefs,
             bundle.iconConflictPolicy,
         )
 
@@ -371,13 +371,13 @@ class GraphTypeStore:
             graphTypeVersion=bundle.graphTypeVersion,
             graphTypeChecksum=bundle.checksum,
             runtimeChecksum=bundle.runtimeChecksum,
-            iconsetResolutionChecksum=bundle.iconsetResolutionChecksum,
+            iconSetResolutionChecksum=bundle.iconSetResolutionChecksum,
             checksum=compute_autocomplete_checksum(bundle),
             nodeTypes=bundle.nodeTypes,
             linkTypes=bundle.linkTypes,
         )
 
-    def _resolve_iconsets(
+    def _resolve_icon_sets(
         self,
         refs,
         conflict_policy,
@@ -389,9 +389,9 @@ class GraphTypeStore:
         for ref in refs:
             try:
                 bundle = self._iconset_store.get_bundle(
-                    ref.iconsetId,
+                    ref.iconSetId,
                     stage="published",
-                    iconset_version=ref.iconsetVersion,
+                    icon_set_version=ref.iconSetVersion,
                 )
             except IconsetStoreError as exc:
                 if exc.code in {
@@ -403,11 +403,11 @@ class GraphTypeStore:
                         status_code=404,
                         code="GRAPH_TYPE_ICONSET_REF_INVALID",
                         message=(
-                            f"Graph type iconset reference '{ref.iconsetId}@{ref.iconsetVersion}' could not be resolved."
+                            f"Graph type iconset reference '{ref.iconSetId}@{ref.iconSetVersion}' could not be resolved."
                         ),
                         details={
-                            "iconsetId": ref.iconsetId,
-                            "iconsetVersion": ref.iconsetVersion,
+                            "iconSetId": ref.iconSetId,
+                            "iconSetVersion": ref.iconSetVersion,
                             "cause": exc.code,
                         },
                     ) from exc
@@ -422,19 +422,19 @@ class GraphTypeStore:
                     status_code=409,
                     code="GRAPH_TYPE_ICONSET_REF_INVALID",
                     message=(
-                        f"Graph type iconset reference '{ref.iconsetId}@{ref.iconsetVersion}' checksum mismatch."
+                        f"Graph type iconset reference '{ref.iconSetId}@{ref.iconSetVersion}' checksum mismatch."
                     ),
                     details={
-                        "iconsetId": ref.iconsetId,
-                        "iconsetVersion": ref.iconsetVersion,
+                        "iconSetId": ref.iconSetId,
+                        "iconSetVersion": ref.iconSetVersion,
                         "expectedChecksum": ref.checksum,
                         "actualChecksum": bundle.checksum,
                     },
                 )
 
             source = IconsetSourceRefV1(
-                iconsetId=bundle.iconsetId,
-                iconsetVersion=bundle.iconsetVersion,
+                iconSetId=bundle.iconSetId,
+                iconSetVersion=bundle.iconSetVersion,
                 checksum=bundle.checksum,
             )
             source_refs.append(source)
@@ -494,7 +494,7 @@ class GraphTypeStore:
             for key, payload in sorted(key_sources_payload.items(), key=lambda item: item[0])
         }
 
-        checksum = compute_iconset_resolution_checksum(
+        checksum = compute_icon_set_resolution_checksum(
             conflict_policy=conflict_policy,
             sources=[item.model_dump() for item in source_refs],
             resolved_entries=resolved_entries,
@@ -593,8 +593,8 @@ class GraphTypeStore:
                 },
             )
 
-        resolved_entries, source_refs, _key_sources, resolution_checksum = self._resolve_iconsets(
-            editable.iconsetRefs,
+        resolved_entries, source_refs, _key_sources, resolution_checksum = self._resolve_icon_sets(
+            editable.iconSetRefs,
             editable.iconConflictPolicy,
         )
 
@@ -629,10 +629,10 @@ class GraphTypeStore:
                 "layoutSetVersion": layout_bundle.layoutSetVersion,
                 "checksum": layout_bundle.checksum,
             },
-            "iconsetRefs": [
+            "iconSetRefs": [
                 {
-                    "iconsetId": source.iconsetId,
-                    "iconsetVersion": source.iconsetVersion,
+                    "iconSetId": source.iconSetId,
+                    "iconSetVersion": source.iconSetVersion,
                     "checksum": source.checksum,
                 }
                 for source in source_refs
@@ -647,7 +647,7 @@ class GraphTypeStore:
             "linkTypes": link_types,
             "typeIconMap": resolved_entries,
             "edgeTypeOverrides": edge_type_overrides,
-            "iconsetResolutionChecksum": resolution_checksum,
+            "iconSetResolutionChecksum": resolution_checksum,
             "elkSettings": validated_elk.model_dump(by_alias=True, exclude_none=True, mode="json"),
             "updatedAt": datetime.now().astimezone(),
         }
@@ -666,6 +666,45 @@ class GraphTypeStore:
     def _ensure_schema(self, conn: sqlite3.Connection) -> None:
         if self._schema_ready:
             return
+        expected_columns = {
+            "graph_types": {
+                "graph_type_id",
+                "name",
+                "draft_version",
+                "draft_updated_at",
+                "draft_checksum",
+                "draft_runtime_checksum",
+                "draft_icon_set_resolution_checksum",
+                "draft_payload",
+            },
+            "graph_type_published_versions": {
+                "graph_type_id",
+                "graph_type_version",
+                "updated_at",
+                "checksum",
+                "runtime_checksum",
+                "icon_set_resolution_checksum",
+                "payload",
+            },
+        }
+        has_schema_mismatch = any(
+            columns and columns != expected_columns[table_name]
+            for table_name, columns in (
+                ("graph_types", self._table_columns(conn, "graph_types")),
+                ("graph_type_published_versions", self._table_columns(conn, "graph_type_published_versions")),
+            )
+        )
+        if has_schema_mismatch:
+            self._drop_schema(conn)
+
+        self._create_schema(conn)
+        if self._has_invalid_bundle_payload(conn):
+            self._drop_schema(conn)
+            self._create_schema(conn)
+        self._schema_ready = True
+
+    @staticmethod
+    def _create_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS graph_types (
@@ -675,7 +714,7 @@ class GraphTypeStore:
                 draft_updated_at TEXT NOT NULL,
                 draft_checksum TEXT NOT NULL,
                 draft_runtime_checksum TEXT NOT NULL,
-                draft_iconset_resolution_checksum TEXT NOT NULL,
+                draft_icon_set_resolution_checksum TEXT NOT NULL,
                 draft_payload TEXT NOT NULL
             );
 
@@ -685,14 +724,43 @@ class GraphTypeStore:
                 updated_at TEXT NOT NULL,
                 checksum TEXT NOT NULL,
                 runtime_checksum TEXT NOT NULL,
-                iconset_resolution_checksum TEXT NOT NULL,
+                icon_set_resolution_checksum TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 PRIMARY KEY (graph_type_id, graph_type_version),
                 FOREIGN KEY (graph_type_id) REFERENCES graph_types(graph_type_id) ON DELETE CASCADE
             );
             """
         )
-        self._schema_ready = True
+
+    @staticmethod
+    def _drop_schema(conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            DROP TABLE IF EXISTS graph_type_published_versions;
+            DROP TABLE IF EXISTS graph_types;
+            """
+        )
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {str(row["name"]) for row in rows}
+
+    @staticmethod
+    def _has_invalid_bundle_payload(conn: sqlite3.Connection) -> bool:
+        rows = conn.execute(
+            """
+            SELECT draft_payload AS payload FROM graph_types
+            UNION ALL
+            SELECT payload FROM graph_type_published_versions
+            """
+        ).fetchall()
+        for row in rows:
+            try:
+                GraphTypeBundleV1.model_validate(json.loads(str(row["payload"])))
+            except (json.JSONDecodeError, ValidationError, TypeError):
+                return True
+        return False
 
     def _assert_graph_type_exists(self, conn: sqlite3.Connection, graph_type_id: str) -> None:
         row = conn.execute(
@@ -716,7 +784,7 @@ class GraphTypeStore:
                 draft_updated_at,
                 draft_checksum,
                 draft_runtime_checksum,
-                draft_iconset_resolution_checksum,
+                draft_icon_set_resolution_checksum,
                 draft_payload
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -727,7 +795,7 @@ class GraphTypeStore:
                 bundle.updatedAt.isoformat(),
                 bundle.checksum,
                 bundle.runtimeChecksum,
-                bundle.iconsetResolutionChecksum,
+                bundle.iconSetResolutionChecksum,
                 self._bundle_to_json(bundle),
             ),
         )
@@ -740,7 +808,7 @@ class GraphTypeStore:
                     updated_at,
                     checksum,
                     runtime_checksum,
-                    iconset_resolution_checksum,
+                    icon_set_resolution_checksum,
                     payload
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -750,7 +818,7 @@ class GraphTypeStore:
                     bundle.updatedAt.isoformat(),
                     bundle.checksum,
                     bundle.runtimeChecksum,
-                    bundle.iconsetResolutionChecksum,
+                    bundle.iconSetResolutionChecksum,
                     self._bundle_to_json(bundle),
                 ),
             )
@@ -765,7 +833,7 @@ class GraphTypeStore:
                 draft_updated_at = ?,
                 draft_checksum = ?,
                 draft_runtime_checksum = ?,
-                draft_iconset_resolution_checksum = ?,
+                draft_icon_set_resolution_checksum = ?,
                 draft_payload = ?
             WHERE graph_type_id = ?
             """,
@@ -775,7 +843,7 @@ class GraphTypeStore:
                 bundle.updatedAt.isoformat(),
                 bundle.checksum,
                 bundle.runtimeChecksum,
-                bundle.iconsetResolutionChecksum,
+                bundle.iconSetResolutionChecksum,
                 self._bundle_to_json(bundle),
                 bundle.graphTypeId,
             ),

@@ -16,7 +16,7 @@ def default_iconset_create_request() -> IconsetCreateRequestV1:
 
     return IconsetCreateRequestV1.model_validate(
         {
-            "iconsetId": "default",
+            "iconSetId": "default",
             "name": "Default Node Type Iconset",
             "entries": entries,
         }

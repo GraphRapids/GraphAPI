@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import Literal
+from typing import Any, Literal
 
 from graphloom import ElkSettings
 from pydantic import ValidationError
@@ -15,11 +15,13 @@ from .graph_type_contract import (
     LayoutSetBundleV1,
     LayoutSetCreateRequestV1,
     LayoutSetEditableFieldsV1,
+    LayoutSetEntryUpsertRequestV1,
     LayoutSetListResponseV1,
     LayoutSetRecordV1,
     LayoutSetSummaryV1,
     LayoutSetUpdateRequestV1,
     compute_layout_set_checksum,
+    normalize_layout_setting_key,
     utcnow,
 )
 
@@ -116,16 +118,32 @@ class LayoutSetStore:
             with self._connect() as conn:
                 self._ensure_schema(conn)
                 draft = self._load_draft_bundle(conn, layout_set_id)
+
                 published_rows = conn.execute(
                     """
-                    SELECT payload
+                    SELECT layout_set_version, name, updated_at, checksum
                     FROM layout_set_published_versions
                     WHERE layout_set_id = ?
                     ORDER BY layout_set_version ASC
                     """,
                     (layout_set_id,),
                 ).fetchall()
-                published = [self._bundle_from_json(str(row["payload"])) for row in published_rows]
+
+                published: list[LayoutSetBundleV1] = []
+                for row in published_rows:
+                    version = int(row["layout_set_version"])
+                    entries = self._load_published_entries(conn, layout_set_id, version)
+                    published.append(
+                        self._bundle_from_parts(
+                            layout_set_id=layout_set_id,
+                            layout_set_version=version,
+                            name=str(row["name"]),
+                            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+                            checksum=str(row["checksum"]),
+                            entries=entries,
+                        )
+                    )
+
                 return LayoutSetRecordV1(
                     layoutSetId=layout_set_id,
                     draft=draft,
@@ -181,6 +199,93 @@ class LayoutSetStore:
 
         return self.get_layout_set(layout_set_id)
 
+    def upsert_layout_set_entry(
+        self,
+        layout_set_id: str,
+        setting_key: str,
+        request: LayoutSetEntryUpsertRequestV1,
+    ) -> LayoutSetRecordV1:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                base = conn.execute(
+                    "SELECT name, draft_version FROM layout_sets WHERE layout_set_id = ?",
+                    (layout_set_id,),
+                ).fetchone()
+                if base is None:
+                    raise LayoutSetStoreError(
+                        status_code=404,
+                        code="LAYOUT_SET_NOT_FOUND",
+                        message=f"Layout set '{layout_set_id}' was not found.",
+                    )
+
+                entries = self._load_draft_entries(conn, layout_set_id)
+                entries[normalize_layout_setting_key(setting_key)] = request.value
+
+                editable = LayoutSetEditableFieldsV1.model_validate(
+                    {
+                        "name": str(base["name"]),
+                        "elkSettings": entries,
+                    }
+                )
+                bundle = self._build_bundle(
+                    layout_set_id=layout_set_id,
+                    layout_set_version=int(base["draft_version"]) + 1,
+                    editable=editable,
+                )
+                self._replace_draft(conn, bundle)
+
+        return self.get_layout_set(layout_set_id)
+
+    def delete_layout_set_entry(self, layout_set_id: str, setting_key: str) -> LayoutSetRecordV1:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                base = conn.execute(
+                    "SELECT name, draft_version FROM layout_sets WHERE layout_set_id = ?",
+                    (layout_set_id,),
+                ).fetchone()
+                if base is None:
+                    raise LayoutSetStoreError(
+                        status_code=404,
+                        code="LAYOUT_SET_NOT_FOUND",
+                        message=f"Layout set '{layout_set_id}' was not found.",
+                    )
+
+                entries = self._load_draft_entries(conn, layout_set_id)
+                normalized_key = normalize_layout_setting_key(setting_key)
+                if normalized_key not in entries:
+                    raise LayoutSetStoreError(
+                        status_code=404,
+                        code="LAYOUT_SET_ENTRY_NOT_FOUND",
+                        message=(
+                            f"Layout setting key '{normalized_key}' was not found in layout set '{layout_set_id}'."
+                        ),
+                    )
+
+                if len(entries) <= 1:
+                    raise LayoutSetStoreError(
+                        status_code=400,
+                        code="LAYOUT_SET_ENTRIES_EMPTY",
+                        message="Layout set entries must not be empty.",
+                    )
+
+                entries.pop(normalized_key, None)
+                editable = LayoutSetEditableFieldsV1.model_validate(
+                    {
+                        "name": str(base["name"]),
+                        "elkSettings": entries,
+                    }
+                )
+                bundle = self._build_bundle(
+                    layout_set_id=layout_set_id,
+                    layout_set_version=int(base["draft_version"]) + 1,
+                    editable=editable,
+                )
+                self._replace_draft(conn, bundle)
+
+        return self.get_layout_set(layout_set_id)
+
     def publish_layout_set(self, layout_set_id: str) -> LayoutSetBundleV1:
         with self._lock:
             with self._connect() as conn:
@@ -204,24 +309,7 @@ class LayoutSetStore:
                         ),
                     )
 
-                conn.execute(
-                    """
-                    INSERT INTO layout_set_published_versions (
-                        layout_set_id,
-                        layout_set_version,
-                        updated_at,
-                        checksum,
-                        payload
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        draft.layoutSetId,
-                        draft.layoutSetVersion,
-                        draft.updatedAt.isoformat(),
-                        draft.checksum,
-                        self._bundle_to_json(draft),
-                    ),
-                )
+                self._insert_published_bundle(conn, draft)
                 return draft
 
     def get_bundle(
@@ -248,7 +336,7 @@ class LayoutSetStore:
 
                 rows = conn.execute(
                     """
-                    SELECT layout_set_version, payload
+                    SELECT layout_set_version, name, updated_at, checksum
                     FROM layout_set_published_versions
                     WHERE layout_set_id = ?
                     ORDER BY layout_set_version ASC
@@ -281,7 +369,16 @@ class LayoutSetStore:
                             ),
                         )
 
-                return self._bundle_from_json(str(selected["payload"]))
+                version = int(selected["layout_set_version"])
+                entries = self._load_published_entries(conn, layout_set_id, version)
+                return self._bundle_from_parts(
+                    layout_set_id=layout_set_id,
+                    layout_set_version=version,
+                    name=str(selected["name"]),
+                    updated_at=datetime.fromisoformat(str(selected["updated_at"])),
+                    checksum=str(selected["checksum"]),
+                    entries=entries,
+                )
 
     def _connect(self) -> sqlite3.Connection:
         self._storage_path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +390,24 @@ class LayoutSetStore:
     def _ensure_schema(self, conn: sqlite3.Connection) -> None:
         if self._schema_ready:
             return
+
+        layout_set_columns = self._table_columns(conn, "layout_sets")
+        published_columns = self._table_columns(conn, "layout_set_published_versions")
+        legacy_layout_schema = (
+            "draft_payload" in layout_set_columns
+            or ("payload" in published_columns)
+            or (published_columns and "name" not in published_columns)
+        )
+        if legacy_layout_schema:
+            conn.executescript(
+                """
+                DROP TABLE IF EXISTS layout_set_published_entries;
+                DROP TABLE IF EXISTS layout_set_draft_entries;
+                DROP TABLE IF EXISTS layout_set_published_versions;
+                DROP TABLE IF EXISTS layout_sets;
+                """
+            )
+
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS layout_sets (
@@ -300,22 +415,45 @@ class LayoutSetStore:
                 name TEXT NOT NULL,
                 draft_version INTEGER NOT NULL,
                 draft_updated_at TEXT NOT NULL,
-                draft_checksum TEXT NOT NULL,
-                draft_payload TEXT NOT NULL
+                draft_checksum TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS layout_set_draft_entries (
+                layout_set_id TEXT NOT NULL,
+                setting_key TEXT NOT NULL,
+                setting_value_json TEXT NOT NULL,
+                PRIMARY KEY (layout_set_id, setting_key),
+                FOREIGN KEY (layout_set_id) REFERENCES layout_sets(layout_set_id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS layout_set_published_versions (
                 layout_set_id TEXT NOT NULL,
                 layout_set_version INTEGER NOT NULL,
+                name TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 checksum TEXT NOT NULL,
-                payload TEXT NOT NULL,
                 PRIMARY KEY (layout_set_id, layout_set_version),
                 FOREIGN KEY (layout_set_id) REFERENCES layout_sets(layout_set_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS layout_set_published_entries (
+                layout_set_id TEXT NOT NULL,
+                layout_set_version INTEGER NOT NULL,
+                setting_key TEXT NOT NULL,
+                setting_value_json TEXT NOT NULL,
+                PRIMARY KEY (layout_set_id, layout_set_version, setting_key),
+                FOREIGN KEY (layout_set_id, layout_set_version)
+                    REFERENCES layout_set_published_versions(layout_set_id, layout_set_version)
+                    ON DELETE CASCADE
             );
             """
         )
         self._schema_ready = True
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {str(row["name"]) for row in rows}
 
     def _assert_layout_set_exists(self, conn: sqlite3.Connection, layout_set_id: str) -> None:
         row = conn.execute(
@@ -329,7 +467,7 @@ class LayoutSetStore:
                 message=f"Layout set '{layout_set_id}' was not found.",
             )
 
-    def _validate_elk_settings(self, elk_settings: dict[str, object]) -> dict[str, object]:
+    def _validate_elk_settings(self, elk_settings: dict[str, Any]) -> dict[str, Any]:
         try:
             canonical = dict(elk_settings)
             canonical["type_icon_map"] = {}
@@ -342,7 +480,11 @@ class LayoutSetStore:
                 message="elkSettings failed GraphLoom validation.",
                 details={"errors": exc.errors()},
             ) from exc
-        return validated.model_dump(by_alias=True, exclude_none=True, mode="json")
+
+        dumped = validated.model_dump(by_alias=True, exclude_none=True, mode="json")
+        dumped.pop("type_icon_map", None)
+        dumped.pop("edge_type_overrides", None)
+        return dumped
 
     def _build_bundle(
         self,
@@ -363,6 +505,35 @@ class LayoutSetStore:
         payload["checksum"] = compute_layout_set_checksum(payload)
         return LayoutSetBundleV1.model_validate(payload)
 
+    def _bundle_from_parts(
+        self,
+        *,
+        layout_set_id: str,
+        layout_set_version: int,
+        name: str,
+        updated_at: datetime,
+        checksum: str,
+        entries: dict[str, Any],
+    ) -> LayoutSetBundleV1:
+        settings = self._validate_elk_settings(entries)
+        payload = {
+            "schemaVersion": "v1",
+            "layoutSetId": layout_set_id,
+            "layoutSetVersion": layout_set_version,
+            "name": name,
+            "elkSettings": settings,
+            "updatedAt": updated_at,
+        }
+        expected_checksum = compute_layout_set_checksum(payload)
+        if checksum != expected_checksum:
+            raise LayoutSetStoreError(
+                status_code=500,
+                code="LAYOUT_SET_STORAGE_CORRUPTED",
+                message="Layout set checksum does not match stored entries.",
+            )
+        payload["checksum"] = checksum
+        return LayoutSetBundleV1.model_validate(payload)
+
     def _insert_layout_set(self, conn: sqlite3.Connection, bundle: LayoutSetBundleV1, *, publish: bool) -> None:
         conn.execute(
             """
@@ -371,9 +542,8 @@ class LayoutSetStore:
                 name,
                 draft_version,
                 draft_updated_at,
-                draft_checksum,
-                draft_payload
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                draft_checksum
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 bundle.layoutSetId,
@@ -381,28 +551,20 @@ class LayoutSetStore:
                 bundle.layoutSetVersion,
                 bundle.updatedAt.isoformat(),
                 bundle.checksum,
-                self._bundle_to_json(bundle),
             ),
         )
+        conn.executemany(
+            """
+            INSERT INTO layout_set_draft_entries (layout_set_id, setting_key, setting_value_json)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (bundle.layoutSetId, key, self._encode_json(value))
+                for key, value in bundle.elkSettings.items()
+            ],
+        )
         if publish:
-            conn.execute(
-                """
-                INSERT INTO layout_set_published_versions (
-                    layout_set_id,
-                    layout_set_version,
-                    updated_at,
-                    checksum,
-                    payload
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    bundle.layoutSetId,
-                    bundle.layoutSetVersion,
-                    bundle.updatedAt.isoformat(),
-                    bundle.checksum,
-                    self._bundle_to_json(bundle),
-                ),
-            )
+            self._insert_published_bundle(conn, bundle)
 
     def _replace_draft(self, conn: sqlite3.Connection, bundle: LayoutSetBundleV1) -> None:
         conn.execute(
@@ -412,8 +574,7 @@ class LayoutSetStore:
                 name = ?,
                 draft_version = ?,
                 draft_updated_at = ?,
-                draft_checksum = ?,
-                draft_payload = ?
+                draft_checksum = ?
             WHERE layout_set_id = ?
             """,
             (
@@ -421,14 +582,65 @@ class LayoutSetStore:
                 bundle.layoutSetVersion,
                 bundle.updatedAt.isoformat(),
                 bundle.checksum,
-                self._bundle_to_json(bundle),
                 bundle.layoutSetId,
             ),
+        )
+        conn.execute(
+            "DELETE FROM layout_set_draft_entries WHERE layout_set_id = ?",
+            (bundle.layoutSetId,),
+        )
+        conn.executemany(
+            """
+            INSERT INTO layout_set_draft_entries (layout_set_id, setting_key, setting_value_json)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (bundle.layoutSetId, key, self._encode_json(value))
+                for key, value in bundle.elkSettings.items()
+            ],
+        )
+
+    def _insert_published_bundle(self, conn: sqlite3.Connection, bundle: LayoutSetBundleV1) -> None:
+        conn.execute(
+            """
+            INSERT INTO layout_set_published_versions (
+                layout_set_id,
+                layout_set_version,
+                name,
+                updated_at,
+                checksum
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                bundle.layoutSetId,
+                bundle.layoutSetVersion,
+                bundle.name,
+                bundle.updatedAt.isoformat(),
+                bundle.checksum,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO layout_set_published_entries (
+                layout_set_id,
+                layout_set_version,
+                setting_key,
+                setting_value_json
+            ) VALUES (?, ?, ?, ?)
+            """,
+            [
+                (bundle.layoutSetId, bundle.layoutSetVersion, key, self._encode_json(value))
+                for key, value in bundle.elkSettings.items()
+            ],
         )
 
     def _load_draft_bundle(self, conn: sqlite3.Connection, layout_set_id: str) -> LayoutSetBundleV1:
         row = conn.execute(
-            "SELECT draft_payload FROM layout_sets WHERE layout_set_id = ?",
+            """
+            SELECT name, draft_version, draft_updated_at, draft_checksum
+            FROM layout_sets
+            WHERE layout_set_id = ?
+            """,
             (layout_set_id,),
         ).fetchone()
         if row is None:
@@ -437,19 +649,57 @@ class LayoutSetStore:
                 code="LAYOUT_SET_NOT_FOUND",
                 message=f"Layout set '{layout_set_id}' was not found.",
             )
-        return self._bundle_from_json(str(row["draft_payload"]))
+
+        entries = self._load_draft_entries(conn, layout_set_id)
+        return self._bundle_from_parts(
+            layout_set_id=layout_set_id,
+            layout_set_version=int(row["draft_version"]),
+            name=str(row["name"]),
+            updated_at=datetime.fromisoformat(str(row["draft_updated_at"])),
+            checksum=str(row["draft_checksum"]),
+            entries=entries,
+        )
+
+    def _load_draft_entries(self, conn: sqlite3.Connection, layout_set_id: str) -> dict[str, Any]:
+        rows = conn.execute(
+            """
+            SELECT setting_key, setting_value_json
+            FROM layout_set_draft_entries
+            WHERE layout_set_id = ?
+            ORDER BY setting_key ASC
+            """,
+            (layout_set_id,),
+        ).fetchall()
+        return {str(row["setting_key"]): self._decode_json(str(row["setting_value_json"])) for row in rows}
+
+    def _load_published_entries(
+        self,
+        conn: sqlite3.Connection,
+        layout_set_id: str,
+        layout_set_version: int,
+    ) -> dict[str, Any]:
+        rows = conn.execute(
+            """
+            SELECT setting_key, setting_value_json
+            FROM layout_set_published_entries
+            WHERE layout_set_id = ? AND layout_set_version = ?
+            ORDER BY setting_key ASC
+            """,
+            (layout_set_id, layout_set_version),
+        ).fetchall()
+        return {str(row["setting_key"]): self._decode_json(str(row["setting_value_json"])) for row in rows}
 
     @staticmethod
-    def _bundle_to_json(bundle: LayoutSetBundleV1) -> str:
-        return json.dumps(bundle.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    def _encode_json(value: Any) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
     @staticmethod
-    def _bundle_from_json(raw: str) -> LayoutSetBundleV1:
+    def _decode_json(value: str) -> Any:
         try:
-            return LayoutSetBundleV1.model_validate(json.loads(raw))
-        except (json.JSONDecodeError, ValidationError) as exc:
+            return json.loads(value)
+        except json.JSONDecodeError as exc:
             raise LayoutSetStoreError(
                 status_code=500,
                 code="LAYOUT_SET_STORAGE_CORRUPTED",
-                message="Layout set storage payload is unreadable or invalid.",
+                message="Layout set entry payload is unreadable.",
             ) from exc

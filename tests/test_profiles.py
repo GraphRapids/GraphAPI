@@ -79,9 +79,22 @@ def test_layout_set_crud_publish_flow(client: TestClient) -> None:
     assert updated.status_code == 200
     assert updated.json()["draft"]["layoutSetVersion"] == 2
 
+    upsert = client.put(
+        "/v1/layout-sets/team-layout/entries/elk.spacing.nodeNode",
+        json={"value": 72},
+    )
+    assert upsert.status_code == 200
+    assert upsert.json()["draft"]["layoutSetVersion"] == 3
+    assert upsert.json()["draft"]["elkSettings"]["elk.spacing.nodeNode"] == 72
+
+    delete = client.delete("/v1/layout-sets/team-layout/entries/elk.spacing.nodeNode")
+    assert delete.status_code == 200
+    assert delete.json()["draft"]["layoutSetVersion"] == 4
+    assert "elk.spacing.nodeNode" not in delete.json()["draft"]["elkSettings"]
+
     published = client.post("/v1/layout-sets/team-layout/publish")
     assert published.status_code == 200
-    assert published.json()["layoutSetVersion"] == 2
+    assert published.json()["layoutSetVersion"] == 4
 
 
 def test_link_set_crud_entry_and_publish_flow(client: TestClient) -> None:
@@ -125,9 +138,9 @@ def test_link_set_crud_entry_and_publish_flow(client: TestClient) -> None:
 
 def test_iconset_crud_and_resolve_flow(client: TestClient) -> None:
     create_a = client.post(
-        "/v1/iconsets",
+        "/v1/icon-sets",
         json={
-            "iconsetId": "team-a",
+            "iconSetId": "team-a",
             "name": "Team A",
             "entries": {
                 "router": "mdi:router",
@@ -138,9 +151,9 @@ def test_iconset_crud_and_resolve_flow(client: TestClient) -> None:
     assert create_a.status_code == 201
 
     create_b = client.post(
-        "/v1/iconsets",
+        "/v1/icon-sets",
         json={
-            "iconsetId": "team-b",
+            "iconSetId": "team-b",
             "name": "Team B",
             "entries": {
                 "router": "material-symbols:router-outline",
@@ -150,15 +163,15 @@ def test_iconset_crud_and_resolve_flow(client: TestClient) -> None:
     )
     assert create_b.status_code == 201
 
-    assert client.post("/v1/iconsets/team-a/publish").status_code == 200
-    assert client.post("/v1/iconsets/team-b/publish").status_code == 200
+    assert client.post("/v1/icon-sets/team-a/publish").status_code == 200
+    assert client.post("/v1/icon-sets/team-b/publish").status_code == 200
 
     conflict = client.post(
-        "/v1/iconsets/resolve",
+        "/v1/icon-sets/resolve",
         json={
-            "iconsetRefs": [
-                {"iconsetId": "team-a", "stage": "published", "iconsetVersion": 1},
-                {"iconsetId": "team-b", "stage": "published", "iconsetVersion": 1},
+            "iconSetRefs": [
+                {"iconSetId": "team-a", "stage": "published", "iconSetVersion": 1},
+                {"iconSetId": "team-b", "stage": "published", "iconSetVersion": 1},
             ],
             "conflictPolicy": "reject",
         },
@@ -166,11 +179,11 @@ def test_iconset_crud_and_resolve_flow(client: TestClient) -> None:
     assert conflict.status_code == 409
 
     last_wins = client.post(
-        "/v1/iconsets/resolve",
+        "/v1/icon-sets/resolve",
         json={
-            "iconsetRefs": [
-                {"iconsetId": "team-a", "stage": "published", "iconsetVersion": 1},
-                {"iconsetId": "team-b", "stage": "published", "iconsetVersion": 1},
+            "iconSetRefs": [
+                {"iconSetId": "team-a", "stage": "published", "iconSetVersion": 1},
+                {"iconSetId": "team-b", "stage": "published", "iconSetVersion": 1},
             ],
             "conflictPolicy": "last-wins",
         },
@@ -184,9 +197,9 @@ def test_iconset_crud_and_resolve_flow(client: TestClient) -> None:
 
 def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, monkeypatch) -> None:
     created_iconset = client.post(
-        "/v1/iconsets",
+        "/v1/icon-sets",
         json={
-            "iconsetId": "telecom",
+            "iconSetId": "telecom",
             "name": "Telecom",
             "entries": {
                 "router": "mdi:router",
@@ -196,7 +209,7 @@ def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, 
         },
     )
     assert created_iconset.status_code == 201
-    assert client.post("/v1/iconsets/telecom/publish").status_code == 200
+    assert client.post("/v1/icon-sets/telecom/publish").status_code == 200
 
     layout_bundle = client.get("/v1/layout-sets/default/bundle", params={"stage": "published"}).json()
 
@@ -231,7 +244,7 @@ def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, 
                 "layoutSetId": "default",
                 "layoutSetVersion": layout_bundle["layoutSetVersion"],
             },
-            "iconsetRefs": [{"iconsetId": "telecom", "iconsetVersion": 1}],
+            "iconSetRefs": [{"iconSetId": "telecom", "iconSetVersion": 1}],
             "linkSetRef": {"linkSetId": "telecom-links", "linkSetVersion": 1},
             "iconConflictPolicy": "reject",
         },
@@ -243,7 +256,7 @@ def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, 
     published_body = publish_graph_type.json()
     assert published_body["nodeTypes"] == ["firewall", "gateway", "router"]
     assert published_body["linkTypes"] == ["dependency", "directed"]
-    assert published_body["iconsetResolutionChecksum"]
+    assert published_body["iconSetResolutionChecksum"]
 
     catalog = client.get(
         "/v1/autocomplete/catalog",
@@ -284,7 +297,7 @@ def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, 
     assert render_response.status_code == 200
     assert render_response.headers["x-graphapi-graph-type-id"] == "telecom-type"
     assert render_response.headers["x-graphapi-graph-type-runtime-checksum"] == published_body["runtimeChecksum"]
-    assert render_response.headers["x-graphapi-iconset-sources"] == "telecom@1"
+    assert render_response.headers["x-graphapi-icon-set-sources"] == "telecom@1"
     assert render_response.headers["x-graphapi-runtime-checksum"]
 
 
@@ -317,7 +330,7 @@ def test_error_mapping_for_invalid_graph_type_references(client: TestClient) -> 
         "graphTypeId": "invalid-ref",
         "name": "Broken",
         "layoutSetRef": {"layoutSetId": "missing", "layoutSetVersion": 1},
-        "iconsetRefs": [{"iconsetId": "default", "iconsetVersion": 1}],
+        "iconSetRefs": [{"iconSetId": "default", "iconSetVersion": 1}],
         "linkSetRef": {"linkSetId": "default", "linkSetVersion": 1},
         "iconConflictPolicy": "reject",
     }
@@ -333,8 +346,9 @@ def test_openapi_includes_modular_v1_contract_endpoints(client: TestClient) -> N
     openapi = response.json()
     paths = openapi["paths"]
 
-    assert "/v1/iconsets" in paths
+    assert "/v1/icon-sets" in paths
     assert "/v1/layout-sets" in paths
+    assert "/v1/layout-sets/{id}/entries/{key}" in paths
     assert "/v1/link-sets" in paths
     assert "/v1/graph-types" in paths
     assert "/v1/graph-types/{id}/runtime" in paths
@@ -342,6 +356,7 @@ def test_openapi_includes_modular_v1_contract_endpoints(client: TestClient) -> N
     assert "/render/svg" in paths
 
     assert "/v1/profiles" not in paths
+    assert "/v1/icon_sets" not in paths
     assert all(not key.startswith("/v2/") for key in paths)
 
     schemas = openapi["components"]["schemas"]

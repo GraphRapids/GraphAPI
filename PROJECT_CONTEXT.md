@@ -38,6 +38,8 @@ Primary endpoints:
 - `GET /v1/layout-sets/{id}/bundle`
 - `POST /v1/layout-sets`
 - `PUT /v1/layout-sets/{id}`
+- `PUT /v1/layout-sets/{id}/entries/{key}`
+- `DELETE /v1/layout-sets/{id}/entries/{key}`
 - `POST /v1/layout-sets/{id}/publish`
 - `GET /v1/link-sets`
 - `GET /v1/link-sets/{id}`
@@ -54,15 +56,15 @@ Primary endpoints:
 - `PUT /v1/themes/{id}`
 - `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog?graph_type_id=...`
-- `GET /v1/iconsets`
-- `GET /v1/iconsets/{id}`
-- `GET /v1/iconsets/{id}/bundle`
-- `POST /v1/iconsets`
-- `PUT /v1/iconsets/{id}`
-- `PUT /v1/iconsets/{id}/entries/{key}`
-- `DELETE /v1/iconsets/{id}/entries/{key}`
-- `POST /v1/iconsets/{id}/publish`
-- `POST /v1/iconsets/resolve`
+- `GET /v1/icon-sets`
+- `GET /v1/icon-sets/{id}`
+- `GET /v1/icon-sets/{id}/bundle`
+- `POST /v1/icon-sets`
+- `PUT /v1/icon-sets/{id}`
+- `PUT /v1/icon-sets/{id}/entries/{key}`
+- `DELETE /v1/icon-sets/{id}/entries/{key}`
+- `POST /v1/icon-sets/{id}/publish`
+- `POST /v1/icon-sets/resolve`
 
 Behavior expectations:
 - Always run ELKJS layout before SVG rendering.

@@ -24,10 +24,10 @@ def default_profile_create_request() -> ProfileCreateRequestV1:
             "name": "Default Layout Profile",
             "linkTypes": _DEFAULT_LINK_TYPES,
             "elkSettings": settings,
-            "iconsetRefs": [
+            "iconSetRefs": [
                 {
-                    "iconsetId": "default",
-                    "iconsetVersion": 1,
+                    "iconSetId": "default",
+                    "iconSetVersion": 1,
                 }
             ],
             "iconConflictPolicy": "reject",

@@ -19,7 +19,7 @@ from .profile_contract import (
     NodeTypeSourceV1,
     PROFILE_ID_PATTERN,
     ProfileIconsetRefV1,
-    compute_iconset_resolution_checksum,
+    compute_icon_set_resolution_checksum,
     normalize_checksum,
     normalize_type_key,
     utcnow,
@@ -37,8 +37,11 @@ GRAPH_TYPE_ID_PATTERN = PROFILE_ID_PATTERN
 
 MAX_LINK_SET_ENTRIES = MAX_LINK_TYPES
 MAX_LAYOUT_SET_BYTES = 512_000
+MAX_LAYOUT_SET_ENTRIES = 1024
 MAX_ELK_PROPERTIES = 256
 ELK_EDGE_TYPE_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+LAYOUT_SETTING_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+RESERVED_LAYOUT_SETTING_KEYS = {"type_icon_map", "edge_type_overrides"}
 
 
 def _canonical_json(value: Any) -> str:
@@ -53,6 +56,15 @@ def normalize_layout_set_id(value: str) -> str:
     normalized = str(value).strip().lower()
     if not LAYOUT_SET_ID_PATTERN.fullmatch(normalized):
         raise ValueError("layoutSetId must match ^[a-z0-9][a-z0-9_-]{1,63}$")
+    return normalized
+
+
+def normalize_layout_setting_key(value: str) -> str:
+    normalized = str(value).strip()
+    if not LAYOUT_SETTING_KEY_PATTERN.fullmatch(normalized):
+        raise ValueError("layout setting key must match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    if normalized in RESERVED_LAYOUT_SETTING_KEYS:
+        raise ValueError(f"layout setting key '{normalized}' is reserved and cannot be set directly.")
     return normalized
 
 
@@ -87,9 +99,39 @@ class LayoutSetEditableFieldsV1(BaseModel):
     @field_validator("elkSettings")
     @classmethod
     def validate_elk_settings_size(cls, value: dict[str, Any]) -> dict[str, Any]:
-        encoded = _canonical_json(value).encode("utf-8")
+        if not value:
+            raise ValueError("elkSettings must not be empty.")
+        if len(value) > MAX_LAYOUT_SET_ENTRIES:
+            raise ValueError(f"elkSettings exceeds max size {MAX_LAYOUT_SET_ENTRIES}.")
+
+        normalized: dict[str, Any] = {}
+        for raw_key, raw_value in value.items():
+            key = normalize_layout_setting_key(raw_key)
+            if key in normalized:
+                raise ValueError(f"Duplicate layout setting key '{raw_key}'.")
+            normalized[key] = raw_value
+
+        try:
+            encoded = _canonical_json(normalized).encode("utf-8")
+        except TypeError as exc:
+            raise ValueError("elkSettings contains non-JSON-serializable values.") from exc
         if len(encoded) > MAX_LAYOUT_SET_BYTES:
             raise ValueError(f"elkSettings exceeds max payload size {MAX_LAYOUT_SET_BYTES} bytes.")
+        return dict(sorted(normalized.items(), key=lambda item: item[0]))
+
+
+class LayoutSetEntryUpsertRequestV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: Any
+
+    @field_validator("value")
+    @classmethod
+    def validate_value_json_serializable(cls, value: Any) -> Any:
+        try:
+            _canonical_json(value)
+        except TypeError as exc:
+            raise ValueError("value must be JSON-serializable.") from exc
         return value
 
 
@@ -318,7 +360,7 @@ class GraphTypeEditableFieldsV1(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     layoutSetRef: LayoutSetRefV1
-    iconsetRefs: list[ProfileIconsetRefV1] = Field(min_length=1, max_length=MAX_ICONSET_REFS)
+    iconSetRefs: list[ProfileIconsetRefV1] = Field(min_length=1, max_length=MAX_ICONSET_REFS)
     linkSetRef: LinkSetRefV1
     iconConflictPolicy: IconConflictPolicy = "reject"
 
@@ -330,23 +372,23 @@ class GraphTypeEditableFieldsV1(BaseModel):
             raise ValueError("name must not be empty.")
         return text
 
-    @field_validator("iconsetRefs")
+    @field_validator("iconSetRefs")
     @classmethod
     def validate_iconset_refs(cls, values: list[ProfileIconsetRefV1]) -> list[ProfileIconsetRefV1]:
         if not values:
-            raise ValueError("iconsetRefs must not be empty.")
+            raise ValueError("iconSetRefs must not be empty.")
 
         seen: set[tuple[str, int]] = set()
         for item in values:
-            key = (item.iconsetId, item.iconsetVersion)
+            key = (item.iconSetId, item.iconSetVersion)
             if key in seen:
                 raise ValueError(
-                    f"Duplicate iconset reference '{item.iconsetId}@{item.iconsetVersion}'."
+                    f"Duplicate iconset reference '{item.iconSetId}@{item.iconSetVersion}'."
                 )
             seen.add(key)
 
         if len(values) > MAX_ICONSET_REFS:
-            raise ValueError(f"iconsetRefs exceeds max size {MAX_ICONSET_REFS}.")
+            raise ValueError(f"iconSetRefs exceeds max size {MAX_ICONSET_REFS}.")
 
         return values
 
@@ -376,7 +418,7 @@ class GraphTypeBundleV1(GraphTypeEditableFieldsV1):
     linkTypes: list[str] = Field(min_length=1, max_length=MAX_LINK_TYPES)
     typeIconMap: dict[str, str] = Field(min_length=1, max_length=MAX_RESOLVED_TYPE_KEYS)
     edgeTypeOverrides: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    iconsetResolutionChecksum: str = Field(min_length=64, max_length=64)
+    iconSetResolutionChecksum: str = Field(min_length=64, max_length=64)
     runtimeChecksum: str = Field(min_length=64, max_length=64)
     elkSettings: dict[str, Any]
     updatedAt: datetime
@@ -450,7 +492,7 @@ class GraphTypeSummaryV1(BaseModel):
     updatedAt: datetime
     checksum: str
     runtimeChecksum: str
-    iconsetResolutionChecksum: str
+    iconSetResolutionChecksum: str
 
 
 class GraphTypeRecordV1(BaseModel):
@@ -493,7 +535,7 @@ class AutocompleteCatalogResponseV1(BaseModel):
     graphTypeVersion: int = Field(ge=1)
     graphTypeChecksum: str = Field(min_length=64, max_length=64)
     runtimeChecksum: str = Field(min_length=64, max_length=64)
-    iconsetResolutionChecksum: str = Field(min_length=64, max_length=64)
+    iconSetResolutionChecksum: str = Field(min_length=64, max_length=64)
     checksum: str = Field(min_length=64, max_length=64)
     nodeTypes: list[str]
     linkTypes: list[str]
@@ -550,14 +592,14 @@ def canonical_graph_type_runtime_payload(bundle_data: dict[str, Any]) -> dict[st
         "graphTypeId": bundle_data["graphTypeId"],
         "graphTypeVersion": bundle_data["graphTypeVersion"],
         "layoutSetRef": bundle_data["layoutSetRef"],
-        "iconsetRefs": bundle_data["iconsetRefs"],
+        "iconSetRefs": bundle_data["iconSetRefs"],
         "linkSetRef": bundle_data["linkSetRef"],
         "iconConflictPolicy": bundle_data["iconConflictPolicy"],
         "nodeTypes": sorted(bundle_data["nodeTypes"]),
         "linkTypes": sorted(bundle_data["linkTypes"]),
         "typeIconMap": dict(sorted(bundle_data["typeIconMap"].items(), key=lambda item: item[0])),
         "edgeTypeOverrides": dict(sorted(bundle_data["edgeTypeOverrides"].items(), key=lambda item: item[0])),
-        "iconsetResolutionChecksum": bundle_data["iconsetResolutionChecksum"],
+        "iconSetResolutionChecksum": bundle_data["iconSetResolutionChecksum"],
     }
 
 
@@ -589,7 +631,7 @@ def compute_autocomplete_checksum(bundle: GraphTypeBundleV1) -> str:
         "graphTypeVersion": bundle.graphTypeVersion,
         "graphTypeChecksum": bundle.checksum,
         "runtimeChecksum": bundle.runtimeChecksum,
-        "iconsetResolutionChecksum": bundle.iconsetResolutionChecksum,
+        "iconSetResolutionChecksum": bundle.iconSetResolutionChecksum,
         "nodeTypes": bundle.nodeTypes,
         "linkTypes": bundle.linkTypes,
     }
@@ -629,6 +671,7 @@ __all__ = [
     "GRAPH_TYPE_RUNTIME_SCHEMA_VERSION",
     "LayoutSetBundleV1",
     "LayoutSetCreateRequestV1",
+    "LayoutSetEntryUpsertRequestV1",
     "LayoutSetListResponseV1",
     "LayoutSetRecordV1",
     "LayoutSetRefV1",
@@ -651,9 +694,10 @@ __all__ = [
     "compute_link_set_checksum",
     "normalize_graph_type_id",
     "normalize_layout_set_id",
+    "normalize_layout_setting_key",
     "normalize_link_set_id",
     "utcnow",
-    "compute_iconset_resolution_checksum",
+    "compute_icon_set_resolution_checksum",
     "IconsetSourceRefV1",
     "NodeTypeSourceV1",
 ]

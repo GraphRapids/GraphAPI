@@ -12,10 +12,10 @@ def default_graph_type_create_request() -> GraphTypeCreateRequestV1:
                 "layoutSetId": "default",
                 "layoutSetVersion": 1,
             },
-            "iconsetRefs": [
+            "iconSetRefs": [
                 {
-                    "iconsetId": "default",
-                    "iconsetVersion": 1,
+                    "iconSetId": "default",
+                    "iconSetVersion": 1,
                 }
             ],
             "linkSetRef": {
