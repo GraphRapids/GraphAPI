@@ -10,11 +10,11 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 ## Features
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
-- Canonical layout profile service (`/v1/profiles*`) with iconset references + deterministic resolution
+- Canonical graph type service (`/v1/graph-types*`) with deterministic runtime resolution
 - Canonical render theme service (`/v1/themes*`) with draft/publish lifecycle
 - Canonical node-type iconset service (`/v1/iconsets*`) with draft/publish lifecycle
 - `POST /render/svg` endpoint for JSON-to-SVG conversion
-- Optional `profile_id` and `theme_id` query parameters on `POST /render/svg` for layout + render selection
+- Optional `graph_type_id` and `theme_id` query parameters on `POST /render/svg` for runtime + render selection
 - `POST /validate` endpoint for lightweight JSON validation
 - GraphLoom integration for validation and default enrichment
 - ELKJS layout is always executed before rendering
@@ -22,26 +22,40 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 - `GET /schemas/minimal-input.schema.json` to expose GraphLoom's official input schema
 - Configurable CORS, request timeout, and request size limits
 
-## Runtime Layout Profile + Render Theme API (v1)
+## Runtime Graph Type + Modular Runtime API (v1)
 
 GraphAPI is the canonical runtime service for GraphRapids consumers.
 
 ### Endpoints
 
-- `GET /v1/profiles`
-- `GET /v1/profiles/{id}`
-- `GET /v1/profiles/{id}/bundle`
-- `POST /v1/profiles`
-- `PUT /v1/profiles/{id}`
-- `POST /v1/profiles/{id}/publish`
+- `GET /v1/graph-types`
+- `GET /v1/graph-types/{id}`
+- `GET /v1/graph-types/{id}/bundle`
+- `POST /v1/graph-types`
+- `PUT /v1/graph-types/{id}`
+- `POST /v1/graph-types/{id}/publish`
+- `GET /v1/graph-types/{id}/runtime`
+- `GET /v1/layout-sets`
+- `GET /v1/layout-sets/{id}`
+- `GET /v1/layout-sets/{id}/bundle`
+- `POST /v1/layout-sets`
+- `PUT /v1/layout-sets/{id}`
+- `POST /v1/layout-sets/{id}/publish`
+- `GET /v1/link-sets`
+- `GET /v1/link-sets/{id}`
+- `GET /v1/link-sets/{id}/bundle`
+- `POST /v1/link-sets`
+- `PUT /v1/link-sets/{id}`
+- `PUT /v1/link-sets/{id}/entries/{key}`
+- `DELETE /v1/link-sets/{id}/entries/{key}`
+- `POST /v1/link-sets/{id}/publish`
 - `GET /v1/themes`
 - `GET /v1/themes/{id}`
 - `GET /v1/themes/{id}/bundle`
 - `POST /v1/themes`
 - `PUT /v1/themes/{id}`
 - `POST /v1/themes/{id}/publish`
-- `GET /v1/autocomplete/catalog?profile_id=...`
-- `GET /v1/profiles/{id}/iconset-resolution`
+- `GET /v1/autocomplete/catalog?graph_type_id=...`
 - `GET /v1/iconsets`
 - `GET /v1/iconsets/{id}`
 - `GET /v1/iconsets/{id}/bundle`
@@ -52,21 +66,25 @@ GraphAPI is the canonical runtime service for GraphRapids consumers.
 - `POST /v1/iconsets/{id}/publish`
 - `POST /v1/iconsets/resolve`
 
-### Layout Profile Schema (v1)
+### Graph Type Schema (v1)
 
 Each bundle carries:
 
 - `schemaVersion`
-- `profileId`
-- `profileVersion`
+- `graphTypeId`
+- `graphTypeVersion`
 - `name`
+- `layoutSetRef`
+- `iconsetRefs[]`
+- `linkSetRef`
+- `iconConflictPolicy`
 - `nodeTypes[]`
 - `linkTypes[]`
-- `elkSettings`
-- `iconsetRefs[]`
-- `iconConflictPolicy`
 - `typeIconMap`
+- `edgeTypeOverrides`
+- `elkSettings`
 - `iconsetResolutionChecksum`
+- `runtimeChecksum`
 - `updatedAt`
 - `checksum`
 
@@ -84,14 +102,14 @@ Each theme bundle carries:
 
 ### Lifecycle
 
-- Create profile: creates draft `profileVersion = 1`.
-- Update profile: replaces draft and increments `profileVersion`.
-- Publish profile: copies the current draft into immutable published versions.
+- Create graph type/layout set/link set/iconset/theme: creates draft `version = 1`.
+- Update: replaces draft and increments version.
+- Publish: copies current draft into immutable published versions.
 - Resolve bundle:
-  - `stage=published` (default): latest published (or a specific `profile_version`)
+  - `stage=published` (default): latest published (or a specific `graph_type_version`)
   - `stage=draft`: current mutable draft
 
-Consumers should use profile/theme checksums and `iconsetResolutionChecksum` for deterministic cache invalidation.
+Consumers should use graph type/runtime/theme checksums for deterministic cache invalidation.
 
 ## Requirements
 
@@ -146,7 +164,9 @@ Environment variables:
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS` (default: `15`)
 - `GRAPHAPI_MAX_REQUEST_BYTES` (default: `1048576`)
 - `GRAPHAPI_RUNTIME_DB_PATH` (default: `~/.cache/graphapi/runtime.v1.sqlite3`)
-- `GRAPHAPI_PROFILE_STORE_PATH` (optional alias for runtime DB path)
+- `GRAPHAPI_GRAPH_TYPE_STORE_PATH` (optional alias for runtime DB path)
+- `GRAPHAPI_LAYOUT_SET_STORE_PATH` (optional alias for runtime DB path)
+- `GRAPHAPI_LINK_SET_STORE_PATH` (optional alias for runtime DB path)
 - `GRAPHAPI_THEME_STORE_PATH` (default: `~/.cache/graphapi/themes.v1.json`)
 - `GRAPHAPI_ICONSET_STORE_PATH` (optional alias for runtime DB path)
 - `GRAPHAPI_DEFAULT_RENDER_CSS_PATH` (optional override for default theme CSS source)

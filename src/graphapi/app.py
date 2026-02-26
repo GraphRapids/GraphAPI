@@ -13,10 +13,36 @@ from fastapi.responses import JSONResponse, Response
 from graphloom import ElkSettings, MinimalGraphIn, build_canvas, layout_with_elkjs, sample_settings
 from graphrender import GraphRender
 
+from .graph_type_contract import (
+    AutocompleteCatalogResponseV1,
+    GraphTypeBundleV1,
+    GraphTypeCreateRequestV1,
+    GraphTypeListResponseV1,
+    GraphTypeRecordV1,
+    GraphTypeRuntimeResponseV1,
+    GraphTypeUpdateRequestV1,
+    LayoutSetBundleV1,
+    LayoutSetCreateRequestV1,
+    LayoutSetListResponseV1,
+    LayoutSetRecordV1,
+    LayoutSetUpdateRequestV1,
+    LinkSetBundleV1,
+    LinkSetCreateRequestV1,
+    LinkSetEntryUpsertRequestV1,
+    LinkSetListResponseV1,
+    LinkSetRecordV1,
+    LinkSetUpdateRequestV1,
+    compute_iconset_resolution_checksum,
+)
+from .graphtype_defaults import default_graph_type_create_request
+from .graphtype_store import GraphTypeStore, GraphTypeStoreError
 from .iconset_defaults import default_iconset_create_request
 from .iconset_store import IconsetStore, IconsetStoreError
+from .layoutset_defaults import default_layout_set_create_request
+from .layoutset_store import LayoutSetStore, LayoutSetStoreError
+from .linkset_defaults import default_link_set_create_request
+from .linkset_store import LinkSetStore, LinkSetStoreError
 from .profile_contract import (
-    AutocompleteCatalogResponseV1,
     ErrorBody,
     ErrorResponse,
     IconsetBundleV1,
@@ -27,21 +53,12 @@ from .profile_contract import (
     IconsetResolutionResultV1,
     IconsetResolveRequestV1,
     IconsetUpdateRequestV1,
-    ProfileBundleV1,
-    ProfileCreateRequestV1,
-    ProfileIconsetResolutionResponseV1,
-    ProfileListResponseV1,
-    ProfileRecordV1,
-    ProfileUpdateRequestV1,
     ThemeBundleV1,
     ThemeCreateRequestV1,
     ThemeListResponseV1,
     ThemeRecordV1,
     ThemeUpdateRequestV1,
-    compute_iconset_resolution_checksum,
 )
-from .profile_defaults import default_profile_create_request
-from .profile_store import ProfileStore, ProfileStoreError
 from .theme_defaults import default_theme_create_request
 from .theme_store import ThemeStore, ThemeStoreError
 
@@ -51,8 +68,8 @@ MAX_REQUEST_BYTES = int(os.getenv("GRAPHAPI_MAX_REQUEST_BYTES", "1048576"))
 app = FastAPI(
     title="GraphAPI",
     description=(
-        "GraphRapids runtime API. Includes layout profile + iconset + render theme management (v1) "
-        "and graph render orchestration over GraphLoom + GraphRender."
+        "GraphRapids runtime API. Includes graph type + icon set + layout set + link set + render theme "
+        "management (v1) and graph render orchestration over GraphLoom + GraphRender."
     ),
     version="1.0.0",
 )
@@ -69,18 +86,17 @@ app.add_middleware(
 iconset_store = IconsetStore.from_env()
 iconset_store.ensure_default_iconset(default_iconset_create_request())
 
-profile_store = ProfileStore.from_env(iconset_store)
-profile_store.ensure_default_profile(default_profile_create_request())
+layout_set_store = LayoutSetStore.from_env()
+layout_set_store.ensure_default_layout_set(default_layout_set_create_request())
+
+link_set_store = LinkSetStore.from_env()
+link_set_store.ensure_default_link_set(default_link_set_create_request())
+
+graph_type_store = GraphTypeStore.from_env(iconset_store, layout_set_store, link_set_store)
+graph_type_store.ensure_default_graph_type(default_graph_type_create_request())
 
 theme_store = ThemeStore.from_env()
 theme_store.ensure_default_theme(default_theme_create_request())
-
-
-def _profile_http_error(exc: ProfileStoreError) -> HTTPException:
-    body = ErrorResponse(
-        error=ErrorBody(code=exc.code, message=exc.message, details=exc.details)
-    )
-    return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
 
 
 def _theme_http_error(exc: ThemeStoreError) -> HTTPException:
@@ -97,17 +113,38 @@ def _iconset_http_error(exc: IconsetStoreError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
 
 
+def _layout_set_http_error(exc: LayoutSetStoreError) -> HTTPException:
+    body = ErrorResponse(
+        error=ErrorBody(code=exc.code, message=exc.message, details=exc.details)
+    )
+    return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
+
+
+def _link_set_http_error(exc: LinkSetStoreError) -> HTTPException:
+    body = ErrorResponse(
+        error=ErrorBody(code=exc.code, message=exc.message, details=exc.details)
+    )
+    return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
+
+
+def _graph_type_http_error(exc: GraphTypeStoreError) -> HTTPException:
+    body = ErrorResponse(
+        error=ErrorBody(code=exc.code, message=exc.message, details=exc.details)
+    )
+    return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
+
+
 def _runtime_checksum(
     *,
-    profile_checksum: str = "",
+    graph_type_checksum: str = "",
     theme_checksum: str = "",
-    iconset_resolution_checksum: str = "",
+    graph_type_runtime_checksum: str = "",
 ) -> str:
     material = "|".join(
         [
-            profile_checksum,
+            graph_type_checksum,
             theme_checksum,
-            iconset_resolution_checksum,
+            graph_type_runtime_checksum,
         ]
     )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -116,12 +153,12 @@ def _runtime_checksum(
 def render_svg_from_graph(
     graph: MinimalGraphIn,
     *,
-    profile_bundle: ProfileBundleV1 | None = None,
+    graph_type_bundle: GraphTypeBundleV1 | None = None,
     theme_bundle: ThemeBundleV1 | None = None,
 ) -> str:
-    if profile_bundle is not None:
-        settings_payload = dict(profile_bundle.elkSettings)
-        settings_payload["type_icon_map"] = profile_bundle.typeIconMap
+    if graph_type_bundle is not None:
+        settings_payload = dict(graph_type_bundle.elkSettings)
+        settings_payload["type_icon_map"] = graph_type_bundle.typeIconMap
         settings = ElkSettings.model_validate(settings_payload)
     else:
         settings = sample_settings()
@@ -179,142 +216,7 @@ def minimal_input_schema() -> JSONResponse:
     return JSONResponse(content=json.loads(schema_text))
 
 
-@app.get(
-    "/v1/profiles",
-    response_model=ProfileListResponseV1,
-    tags=["profiles"],
-)
-def list_profiles_v1() -> ProfileListResponseV1:
-    try:
-        return profile_store.list_profiles()
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.get(
-    "/v1/profiles/{id}",
-    response_model=ProfileRecordV1,
-    tags=["profiles"],
-    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def get_profile_v1(id: str) -> ProfileRecordV1:
-    try:
-        return profile_store.get_profile(id)
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.get(
-    "/v1/profiles/{id}/bundle",
-    response_model=ProfileBundleV1,
-    tags=["profiles"],
-    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def get_profile_bundle_v1(
-    id: str,
-    stage: Literal["draft", "published"] = Query(default="published"),
-    profile_version: int | None = Query(default=None, ge=1),
-) -> ProfileBundleV1:
-    try:
-        return profile_store.get_bundle(
-            id,
-            stage=stage,
-            profile_version=profile_version,
-        )
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.post(
-    "/v1/profiles",
-    response_model=ProfileRecordV1,
-    status_code=201,
-    tags=["profiles"],
-    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def create_profile_v1(request: ProfileCreateRequestV1) -> ProfileRecordV1:
-    try:
-        return profile_store.create_profile(request)
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.put(
-    "/v1/profiles/{id}",
-    response_model=ProfileRecordV1,
-    tags=["profiles"],
-    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def update_profile_v1(
-    id: str,
-    request: ProfileUpdateRequestV1,
-) -> ProfileRecordV1:
-    try:
-        return profile_store.update_profile(id, request)
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.post(
-    "/v1/profiles/{id}/publish",
-    response_model=ProfileBundleV1,
-    tags=["profiles"],
-    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def publish_profile_v1(id: str) -> ProfileBundleV1:
-    try:
-        return profile_store.publish_profile(id)
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.get(
-    "/v1/profiles/{id}/iconset-resolution",
-    response_model=ProfileIconsetResolutionResponseV1,
-    tags=["profiles"],
-    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def get_profile_iconset_resolution_v1(
-    id: str,
-    stage: Literal["draft", "published"] = Query(default="published"),
-    profile_version: int | None = Query(default=None, ge=1),
-) -> ProfileIconsetResolutionResponseV1:
-    try:
-        return profile_store.get_iconset_resolution(
-            id,
-            stage=stage,
-            profile_version=profile_version,
-        )
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.get(
-    "/v1/autocomplete/catalog",
-    response_model=AutocompleteCatalogResponseV1,
-    tags=["profiles"],
-    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
-)
-def get_autocomplete_catalog_v1(
-    profile_id: str,
-    stage: Literal["draft", "published"] = Query(default="published"),
-    profile_version: int | None = Query(default=None, ge=1),
-) -> AutocompleteCatalogResponseV1:
-    try:
-        return profile_store.get_autocomplete_catalog(
-            profile_id,
-            stage=stage,
-            profile_version=profile_version,
-        )
-    except ProfileStoreError as exc:
-        raise _profile_http_error(exc) from exc
-
-
-@app.get(
-    "/v1/iconsets",
-    response_model=IconsetListResponseV1,
-    tags=["iconsets"],
-)
+@app.get("/v1/iconsets", response_model=IconsetListResponseV1, tags=["iconsets"])
 def list_iconsets_v1() -> IconsetListResponseV1:
     try:
         return iconset_store.list_iconsets()
@@ -347,11 +249,7 @@ def get_iconset_bundle_v1(
     iconset_version: int | None = Query(default=None, ge=1),
 ) -> IconsetBundleV1:
     try:
-        return iconset_store.get_bundle(
-            id,
-            stage=stage,
-            iconset_version=iconset_version,
-        )
+        return iconset_store.get_bundle(id, stage=stage, iconset_version=iconset_version)
     except IconsetStoreError as exc:
         raise _iconset_http_error(exc) from exc
 
@@ -376,10 +274,7 @@ def create_iconset_v1(request: IconsetCreateRequestV1) -> IconsetRecordV1:
     tags=["iconsets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def update_iconset_v1(
-    id: str,
-    request: IconsetUpdateRequestV1,
-) -> IconsetRecordV1:
+def update_iconset_v1(id: str, request: IconsetUpdateRequestV1) -> IconsetRecordV1:
     try:
         return iconset_store.update_iconset(id, request)
     except IconsetStoreError as exc:
@@ -392,11 +287,7 @@ def update_iconset_v1(
     tags=["iconsets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def upsert_iconset_entry_v1(
-    id: str,
-    key: str,
-    request: IconsetEntryUpsertRequestV1,
-) -> IconsetRecordV1:
+def upsert_iconset_entry_v1(id: str, key: str, request: IconsetEntryUpsertRequestV1) -> IconsetRecordV1:
     try:
         return iconset_store.upsert_iconset_entry(id, key, request)
     except IconsetStoreError as exc:
@@ -409,10 +300,7 @@ def upsert_iconset_entry_v1(
     tags=["iconsets"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def delete_iconset_entry_v1(
-    id: str,
-    key: str,
-) -> IconsetRecordV1:
+def delete_iconset_entry_v1(id: str, key: str) -> IconsetRecordV1:
     try:
         return iconset_store.delete_iconset_entry(id, key)
     except IconsetStoreError as exc:
@@ -445,11 +333,7 @@ def resolve_iconsets_v1(request: IconsetResolveRequestV1) -> IconsetResolutionRe
 
     for ref in request.iconsetRefs:
         try:
-            bundle = iconset_store.get_bundle(
-                ref.iconsetId,
-                stage=ref.stage,
-                iconset_version=ref.iconsetVersion,
-            )
+            bundle = iconset_store.get_bundle(ref.iconsetId, stage=ref.stage, iconset_version=ref.iconsetVersion)
         except IconsetStoreError as exc:
             raise _iconset_http_error(exc) from exc
 
@@ -505,7 +389,7 @@ def resolve_iconsets_v1(request: IconsetResolveRequestV1) -> IconsetResolutionRe
     if not resolved_entries:
         body = ErrorResponse(
             error=ErrorBody(
-                code="PROFILE_ICONSET_REF_INVALID",
+                code="GRAPH_TYPE_ICONSET_REF_INVALID",
                 message="Resolved iconset map is empty.",
             )
         )
@@ -529,11 +413,305 @@ def resolve_iconsets_v1(request: IconsetResolveRequestV1) -> IconsetResolutionRe
     )
 
 
+@app.get("/v1/layout-sets", response_model=LayoutSetListResponseV1, tags=["layout-sets"])
+def list_layout_sets_v1() -> LayoutSetListResponseV1:
+    try:
+        return layout_set_store.list_layout_sets()
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
 @app.get(
-    "/v1/themes",
-    response_model=ThemeListResponseV1,
-    tags=["themes"],
+    "/v1/layout-sets/{id}",
+    response_model=LayoutSetRecordV1,
+    tags=["layout-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
+def get_layout_set_v1(id: str) -> LayoutSetRecordV1:
+    try:
+        return layout_set_store.get_layout_set(id)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/layout-sets/{id}/bundle",
+    response_model=LayoutSetBundleV1,
+    tags=["layout-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_layout_set_bundle_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    layout_set_version: int | None = Query(default=None, ge=1),
+) -> LayoutSetBundleV1:
+    try:
+        return layout_set_store.get_bundle(id, stage=stage, layout_set_version=layout_set_version)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.post(
+    "/v1/layout-sets",
+    response_model=LayoutSetRecordV1,
+    status_code=201,
+    tags=["layout-sets"],
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def create_layout_set_v1(request: LayoutSetCreateRequestV1) -> LayoutSetRecordV1:
+    try:
+        return layout_set_store.create_layout_set(request)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.put(
+    "/v1/layout-sets/{id}",
+    response_model=LayoutSetRecordV1,
+    tags=["layout-sets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def update_layout_set_v1(id: str, request: LayoutSetUpdateRequestV1) -> LayoutSetRecordV1:
+    try:
+        return layout_set_store.update_layout_set(id, request)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.post(
+    "/v1/layout-sets/{id}/publish",
+    response_model=LayoutSetBundleV1,
+    tags=["layout-sets"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def publish_layout_set_v1(id: str) -> LayoutSetBundleV1:
+    try:
+        return layout_set_store.publish_layout_set(id)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+
+
+@app.get("/v1/link-sets", response_model=LinkSetListResponseV1, tags=["link-sets"])
+def list_link_sets_v1() -> LinkSetListResponseV1:
+    try:
+        return link_set_store.list_link_sets()
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/link-sets/{id}",
+    response_model=LinkSetRecordV1,
+    tags=["link-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_link_set_v1(id: str) -> LinkSetRecordV1:
+    try:
+        return link_set_store.get_link_set(id)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/link-sets/{id}/bundle",
+    response_model=LinkSetBundleV1,
+    tags=["link-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_link_set_bundle_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    link_set_version: int | None = Query(default=None, ge=1),
+) -> LinkSetBundleV1:
+    try:
+        return link_set_store.get_bundle(id, stage=stage, link_set_version=link_set_version)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.post(
+    "/v1/link-sets",
+    response_model=LinkSetRecordV1,
+    status_code=201,
+    tags=["link-sets"],
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def create_link_set_v1(request: LinkSetCreateRequestV1) -> LinkSetRecordV1:
+    try:
+        return link_set_store.create_link_set(request)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.put(
+    "/v1/link-sets/{id}",
+    response_model=LinkSetRecordV1,
+    tags=["link-sets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def update_link_set_v1(id: str, request: LinkSetUpdateRequestV1) -> LinkSetRecordV1:
+    try:
+        return link_set_store.update_link_set(id, request)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.put(
+    "/v1/link-sets/{id}/entries/{key}",
+    response_model=LinkSetRecordV1,
+    tags=["link-sets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def upsert_link_entry_v1(id: str, key: str, request: LinkSetEntryUpsertRequestV1) -> LinkSetRecordV1:
+    try:
+        return link_set_store.upsert_link_entry(id, key, request)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.delete(
+    "/v1/link-sets/{id}/entries/{key}",
+    response_model=LinkSetRecordV1,
+    tags=["link-sets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_link_entry_v1(id: str, key: str) -> LinkSetRecordV1:
+    try:
+        return link_set_store.delete_link_entry(id, key)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.post(
+    "/v1/link-sets/{id}/publish",
+    response_model=LinkSetBundleV1,
+    tags=["link-sets"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def publish_link_set_v1(id: str) -> LinkSetBundleV1:
+    try:
+        return link_set_store.publish_link_set(id)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+
+
+@app.get("/v1/graph-types", response_model=GraphTypeListResponseV1, tags=["graph-types"])
+def list_graph_types_v1() -> GraphTypeListResponseV1:
+    try:
+        return graph_type_store.list_graph_types()
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/graph-types/{id}",
+    response_model=GraphTypeRecordV1,
+    tags=["graph-types"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_graph_type_v1(id: str) -> GraphTypeRecordV1:
+    try:
+        return graph_type_store.get_graph_type(id)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/graph-types/{id}/bundle",
+    response_model=GraphTypeBundleV1,
+    tags=["graph-types"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_graph_type_bundle_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    graph_type_version: int | None = Query(default=None, ge=1),
+) -> GraphTypeBundleV1:
+    try:
+        return graph_type_store.get_bundle(id, stage=stage, graph_type_version=graph_type_version)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.post(
+    "/v1/graph-types",
+    response_model=GraphTypeRecordV1,
+    status_code=201,
+    tags=["graph-types"],
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def create_graph_type_v1(request: GraphTypeCreateRequestV1) -> GraphTypeRecordV1:
+    try:
+        return graph_type_store.create_graph_type(request)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.put(
+    "/v1/graph-types/{id}",
+    response_model=GraphTypeRecordV1,
+    tags=["graph-types"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def update_graph_type_v1(id: str, request: GraphTypeUpdateRequestV1) -> GraphTypeRecordV1:
+    try:
+        return graph_type_store.update_graph_type(id, request)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.post(
+    "/v1/graph-types/{id}/publish",
+    response_model=GraphTypeBundleV1,
+    tags=["graph-types"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def publish_graph_type_v1(id: str) -> GraphTypeBundleV1:
+    try:
+        return graph_type_store.publish_graph_type(id)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/graph-types/{id}/runtime",
+    response_model=GraphTypeRuntimeResponseV1,
+    tags=["graph-types"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_graph_type_runtime_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    graph_type_version: int | None = Query(default=None, ge=1),
+) -> GraphTypeRuntimeResponseV1:
+    try:
+        return graph_type_store.get_runtime(id, stage=stage, graph_type_version=graph_type_version)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.get(
+    "/v1/autocomplete/catalog",
+    response_model=AutocompleteCatalogResponseV1,
+    tags=["graph-types"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_autocomplete_catalog_v1(
+    graph_type_id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    graph_type_version: int | None = Query(default=None, ge=1),
+) -> AutocompleteCatalogResponseV1:
+    try:
+        return graph_type_store.get_autocomplete_catalog(
+            graph_type_id,
+            stage=stage,
+            graph_type_version=graph_type_version,
+        )
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+
+
+@app.get("/v1/themes", response_model=ThemeListResponseV1, tags=["themes"])
 def list_themes_v1() -> ThemeListResponseV1:
     try:
         return theme_store.list_themes()
@@ -566,11 +744,7 @@ def get_theme_bundle_v1(
     theme_version: int | None = Query(default=None, ge=1),
 ) -> ThemeBundleV1:
     try:
-        return theme_store.get_bundle(
-            id,
-            stage=stage,
-            theme_version=theme_version,
-        )
+        return theme_store.get_bundle(id, stage=stage, theme_version=theme_version)
     except ThemeStoreError as exc:
         raise _theme_http_error(exc) from exc
 
@@ -595,10 +769,7 @@ def create_theme_v1(request: ThemeCreateRequestV1) -> ThemeRecordV1:
     tags=["themes"],
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def update_theme_v1(
-    id: str,
-    request: ThemeUpdateRequestV1,
-) -> ThemeRecordV1:
+def update_theme_v1(id: str, request: ThemeUpdateRequestV1) -> ThemeRecordV1:
     try:
         return theme_store.update_theme(id, request)
     except ThemeStoreError as exc:
@@ -626,25 +797,25 @@ def validate_graph(graph: MinimalGraphIn) -> dict[str, object]:
 @app.post("/render/svg")
 def render_svg(
     graph: MinimalGraphIn,
-    profile_id: str | None = None,
-    profile_stage: Literal["draft", "published"] = "published",
-    profile_version: int | None = Query(default=None, ge=1),
+    graph_type_id: str | None = None,
+    graph_type_stage: Literal["draft", "published"] = "published",
+    graph_type_version: int | None = Query(default=None, ge=1),
     theme_id: str | None = None,
     theme_stage: Literal["draft", "published"] = "published",
     theme_version: int | None = Query(default=None, ge=1),
 ) -> Response:
-    profile_bundle: ProfileBundleV1 | None = None
+    graph_type_bundle: GraphTypeBundleV1 | None = None
     theme_bundle: ThemeBundleV1 | None = None
 
-    if profile_id:
+    if graph_type_id:
         try:
-            profile_bundle = profile_store.get_bundle(
-                profile_id,
-                stage=profile_stage,
-                profile_version=profile_version,
+            graph_type_bundle = graph_type_store.get_bundle(
+                graph_type_id,
+                stage=graph_type_stage,
+                graph_type_version=graph_type_version,
             )
-        except ProfileStoreError as exc:
-            raise _profile_http_error(exc) from exc
+        except GraphTypeStoreError as exc:
+            raise _graph_type_http_error(exc) from exc
 
     if theme_id:
         try:
@@ -657,39 +828,31 @@ def render_svg(
             raise _theme_http_error(exc) from exc
 
     try:
-        svg = render_svg_from_graph(
-            graph,
-            profile_bundle=profile_bundle,
-            theme_bundle=theme_bundle,
-        )
+        svg = render_svg_from_graph(graph, graph_type_bundle=graph_type_bundle, theme_bundle=theme_bundle)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     headers: dict[str, str] = {}
-    if profile_bundle is not None:
-        headers["X-GraphAPI-Profile-Id"] = profile_bundle.profileId
-        headers["X-GraphAPI-Profile-Version"] = str(profile_bundle.profileVersion)
-        headers["X-GraphAPI-Profile-Checksum"] = profile_bundle.checksum
-        headers["X-GraphAPI-Iconset-Resolution-Checksum"] = profile_bundle.iconsetResolutionChecksum
+    if graph_type_bundle is not None:
+        headers["X-GraphAPI-Graph-Type-Id"] = graph_type_bundle.graphTypeId
+        headers["X-GraphAPI-Graph-Type-Version"] = str(graph_type_bundle.graphTypeVersion)
+        headers["X-GraphAPI-Graph-Type-Checksum"] = graph_type_bundle.checksum
+        headers["X-GraphAPI-Graph-Type-Runtime-Checksum"] = graph_type_bundle.runtimeChecksum
+        headers["X-GraphAPI-Iconset-Resolution-Checksum"] = graph_type_bundle.iconsetResolutionChecksum
         headers["X-GraphAPI-Iconset-Sources"] = ",".join(
-            [
-                f"{ref.iconsetId}@{ref.iconsetVersion}"
-                for ref in profile_bundle.iconsetRefs
-            ]
+            [f"{ref.iconsetId}@{ref.iconsetVersion}" for ref in graph_type_bundle.iconsetRefs]
         )
     if theme_bundle is not None:
         headers["X-GraphAPI-Theme-Id"] = theme_bundle.themeId
         headers["X-GraphAPI-Theme-Version"] = str(theme_bundle.themeVersion)
         headers["X-GraphAPI-Theme-Checksum"] = theme_bundle.checksum
 
-    if profile_bundle is not None or theme_bundle is not None:
+    if graph_type_bundle is not None or theme_bundle is not None:
         headers["X-GraphAPI-Runtime-Checksum"] = _runtime_checksum(
-            profile_checksum=profile_bundle.checksum if profile_bundle is not None else "",
+            graph_type_checksum=graph_type_bundle.checksum if graph_type_bundle is not None else "",
             theme_checksum=theme_bundle.checksum if theme_bundle is not None else "",
-            iconset_resolution_checksum=(
-                profile_bundle.iconsetResolutionChecksum
-                if profile_bundle is not None
-                else ""
+            graph_type_runtime_checksum=(
+                graph_type_bundle.runtimeChecksum if graph_type_bundle is not None else ""
             ),
         )
 
