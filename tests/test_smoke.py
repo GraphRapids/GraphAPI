@@ -30,10 +30,11 @@ def test_render_svg_from_json(monkeypatch):
 
 
 def test_render_svg_accepts_profile_id_query(monkeypatch):
-    called = {"profile_bundle": None}
+    called = {"profile_bundle": None, "theme_bundle": None}
 
-    def fake_render(graph, *, profile_bundle=None):
+    def fake_render(graph, *, profile_bundle=None, theme_bundle=None):
         called["profile_bundle"] = profile_bundle
+        called["theme_bundle"] = theme_bundle
         return "<svg/>"
 
     monkeypatch.setattr(graphapi_module, "render_svg_from_graph", fake_render)
@@ -42,6 +43,23 @@ def test_render_svg_accepts_profile_id_query(monkeypatch):
 
     assert response.status_code == 200
     assert called["profile_bundle"] is not None
+    assert called["theme_bundle"] is None
+
+
+def test_render_svg_accepts_theme_id_query(monkeypatch):
+    called = {"profile_bundle": None, "theme_bundle": None}
+
+    def fake_render(graph, *, profile_bundle=None, theme_bundle=None):
+        called["profile_bundle"] = profile_bundle
+        called["theme_bundle"] = theme_bundle
+        return "<svg/>"
+
+    monkeypatch.setattr(graphapi_module, "render_svg_from_graph", fake_render)
+
+    response = client.post("/render/svg?theme_id=default", json={"nodes": ["A"]})
+
+    assert response.status_code == 200
+    assert called["theme_bundle"] is not None
 
 
 def test_graphloom_schema_endpoint():
@@ -76,7 +94,7 @@ def test_request_size_limit():
 
 
 def test_request_timeout(monkeypatch):
-    def slow_render(_graph, *, profile_bundle=None):
+    def slow_render(_graph, *, profile_bundle=None, theme_bundle=None):
         import time
 
         time.sleep(0.05)

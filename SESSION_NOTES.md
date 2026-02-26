@@ -15,6 +15,32 @@ Use this file as a running log between work sessions.
 ## Current
 
 ### 2026-02-26
+- Summary: Split runtime selectors into layout profiles and render themes.
+- Changes:
+  - Removed `renderCss` from profile contract/store payloads.
+  - Added theme contract/store/defaults and `/v1/themes*` CRUD + publish endpoints.
+  - Updated `POST /render/svg` to accept `theme_id`, `theme_stage`, and `theme_version`.
+  - Added theme selector headers and runtime checksum header to render responses.
+  - Updated contract and smoke tests for profile+theme runtime behavior.
+- Files touched:
+  - `src/graphapi/app.py`
+  - `src/graphapi/profile_contract.py`
+  - `src/graphapi/profile_defaults.py`
+  - `src/graphapi/profile_store.py`
+  - `src/graphapi/theme_defaults.py`
+  - `src/graphapi/theme_store.py`
+  - `tests/test_profiles.py`
+  - `tests/test_smoke.py`
+  - `README.md`
+  - `PROJECT_CONTEXT.md`
+  - `SESSION_NOTES.md`
+- Tests run:
+  - `./.venv/bin/python -m pytest -q` (12 passed)
+- Known issues: none.
+- Next steps:
+  - Keep GraphEditor and SDK clients aligned with new `theme_id` selector semantics.
+
+### 2026-02-26
 - Summary: Removed external theme compatibility surfaces from API runtime and contracts.
 - Changes:
   - Removed external theme package integration from API runtime path.

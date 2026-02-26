@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 from graphloom import sample_settings
-from graphrender import default_theme_css
 
 from .profile_contract import ProfileCreateRequestV1
 
@@ -18,30 +14,6 @@ _DEFAULT_LINK_TYPES = [
 ]
 
 
-def _workspace_default_css_path() -> Path:
-    # graphapi/app.py => graphapi => src => GraphAPI => GraphRapids workspace root
-    return Path(__file__).resolve().parents[3] / "default.css"
-
-
-def load_default_render_css() -> str:
-    override_path = os.getenv("GRAPHAPI_DEFAULT_RENDER_CSS_PATH", "").strip()
-    candidates: list[Path] = []
-    if override_path:
-        candidates.append(Path(override_path).expanduser())
-    candidates.append(_workspace_default_css_path())
-
-    for path in candidates:
-        try:
-            if path.exists():
-                content = path.read_text(encoding="utf-8")
-                if content.strip():
-                    return content
-        except OSError:
-            continue
-
-    return default_theme_css("default")
-
-
 def default_profile_create_request() -> ProfileCreateRequestV1:
     defaults = sample_settings()
     node_types = sorted({str(key).lower() for key in defaults.type_icon_map.keys()})
@@ -49,10 +21,9 @@ def default_profile_create_request() -> ProfileCreateRequestV1:
     return ProfileCreateRequestV1.model_validate(
         {
             "profileId": "default",
-            "name": "Default Runtime Profile",
+            "name": "Default Layout Profile",
             "nodeTypes": node_types,
             "linkTypes": _DEFAULT_LINK_TYPES,
             "elkSettings": defaults.model_dump(by_alias=True, exclude_none=True, mode="json"),
-            "renderCss": load_default_render_css(),
         }
     )

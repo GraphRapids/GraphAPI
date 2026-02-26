@@ -10,9 +10,10 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 ## Features
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
-- Canonical runtime profile service (`/v1/profiles*`) with draft/publish lifecycle
+- Canonical layout profile service (`/v1/profiles*`) with draft/publish lifecycle
+- Canonical render theme service (`/v1/themes*`) with draft/publish lifecycle
 - `POST /render/svg` endpoint for JSON-to-SVG conversion
-- Optional `profile_id` query parameter on `POST /render/svg` for profile-driven layout + render
+- Optional `profile_id` and `theme_id` query parameters on `POST /render/svg` for layout + render selection
 - `POST /validate` endpoint for lightweight JSON validation
 - GraphLoom integration for validation and default enrichment
 - ELKJS layout is always executed before rendering
@@ -20,9 +21,9 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 - `GET /schemas/minimal-input.schema.json` to expose GraphLoom's official input schema
 - Configurable CORS, request timeout, and request size limits
 
-## Runtime Profile API (v1)
+## Runtime Layout Profile + Render Theme API (v1)
 
-GraphAPI is the canonical profile runtime service for GraphRapids consumers.
+GraphAPI is the canonical runtime service for GraphRapids consumers.
 
 ### Endpoints
 
@@ -32,9 +33,15 @@ GraphAPI is the canonical profile runtime service for GraphRapids consumers.
 - `POST /v1/profiles`
 - `PUT /v1/profiles/{id}`
 - `POST /v1/profiles/{id}/publish`
+- `GET /v1/themes`
+- `GET /v1/themes/{id}`
+- `GET /v1/themes/{id}/bundle`
+- `POST /v1/themes`
+- `PUT /v1/themes/{id}`
+- `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog?profile_id=...`
 
-### Profile Schema (v1)
+### Layout Profile Schema (v1)
 
 Each bundle carries:
 
@@ -45,6 +52,17 @@ Each bundle carries:
 - `nodeTypes[]`
 - `linkTypes[]`
 - `elkSettings`
+- `updatedAt`
+- `checksum`
+
+### Render Theme Schema (v1)
+
+Each theme bundle carries:
+
+- `schemaVersion`
+- `themeId`
+- `themeVersion`
+- `name`
 - `renderCss`
 - `updatedAt`
 - `checksum`
@@ -58,7 +76,7 @@ Each bundle carries:
   - `stage=published` (default): latest published (or a specific `profile_version`)
   - `stage=draft`: current mutable draft
 
-Consumers should use `profileVersion` + `checksum` for deterministic cache invalidation.
+Consumers should use both profile and theme version/checksum values for deterministic cache invalidation.
 
 ## Requirements
 
@@ -113,7 +131,8 @@ Environment variables:
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS` (default: `15`)
 - `GRAPHAPI_MAX_REQUEST_BYTES` (default: `1048576`)
 - `GRAPHAPI_PROFILE_STORE_PATH` (default: `~/.cache/graphapi/profiles.v1.json`)
-- `GRAPHAPI_DEFAULT_RENDER_CSS_PATH` (optional override for default profile CSS source)
+- `GRAPHAPI_THEME_STORE_PATH` (default: `~/.cache/graphapi/themes.v1.json`)
+- `GRAPHAPI_DEFAULT_RENDER_CSS_PATH` (optional override for default theme CSS source)
 
 ## Python API
 

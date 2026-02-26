@@ -20,7 +20,7 @@ from .profile_contract import (
     ProfileSummaryV1,
     ProfileUpdateRequestV1,
     _StoredProfileDocument,
-    compute_checksum,
+    compute_profile_checksum,
     utcnow,
 )
 
@@ -299,10 +299,9 @@ class ProfileStore:
             "nodeTypes": editable.nodeTypes,
             "linkTypes": editable.linkTypes,
             "elkSettings": normalized_elk_settings,
-            "renderCss": editable.renderCss,
             "updatedAt": timestamp,
         }
-        payload["checksum"] = compute_checksum(payload)
+        payload["checksum"] = compute_profile_checksum(payload)
         return ProfileBundleV1.model_validate(payload)
 
     def _load_document(self) -> ProfileStoreDocumentV1:
@@ -314,6 +313,19 @@ class ProfileStore:
             if not raw.strip():
                 return ProfileStoreDocumentV1()
             data = json.loads(raw)
+            # Remove legacy inline render CSS from profile bundles after split to theme bundles.
+            if isinstance(data, dict) and isinstance(data.get("profiles"), dict):
+                for stored in data["profiles"].values():
+                    if not isinstance(stored, dict):
+                        continue
+                    draft = stored.get("draft")
+                    if isinstance(draft, dict):
+                        draft.pop("renderCss", None)
+                    published = stored.get("publishedVersions")
+                    if isinstance(published, list):
+                        for item in published:
+                            if isinstance(item, dict):
+                                item.pop("renderCss", None)
             document = ProfileStoreDocumentV1.model_validate(data)
         except (OSError, json.JSONDecodeError, ValidationError) as exc:
             raise ProfileStoreError(
@@ -322,7 +334,6 @@ class ProfileStore:
                 message="Profile storage file is unreadable or invalid.",
             ) from exc
 
-        # Defensive normalization in case users edited the file manually.
         for key, stored in document.profiles.items():
             if key != stored.profileId:
                 raise ProfileStoreError(

@@ -1,14 +1,14 @@
 # GraphAPI - Project Context
 
 ## Purpose
-GraphAPI is the FastAPI service layer that validates minimal graph input, applies GraphLoom enrichment/layout, returns rendered SVG output via GraphRender, and serves as the canonical runtime profile service.
+GraphAPI is the FastAPI service layer that validates minimal graph input, applies GraphLoom enrichment/layout, returns rendered SVG output via GraphRender, and serves as the canonical runtime layout-profile + render-theme service.
 
 ## Primary Goals
 - Expose a stable HTTP API for validation and rendering.
-- Expose a contract-first profile API with explicit schema versioning.
+- Expose contract-first layout profile + render theme APIs with explicit schema versioning.
 - Keep request/response behavior predictable with clear error mapping.
 - Enforce runtime safety limits (request size, timeout, CORS).
-- Keep schema and compatibility theme endpoints aligned with profile bundles.
+- Keep schema and runtime selector endpoints aligned with layout profile and render theme bundles.
 
 ## Package Snapshot
 - Python package: `graphapi`
@@ -31,12 +31,18 @@ Primary endpoints:
 - `POST /v1/profiles`
 - `PUT /v1/profiles/{id}`
 - `POST /v1/profiles/{id}/publish`
+- `GET /v1/themes`
+- `GET /v1/themes/{id}`
+- `GET /v1/themes/{id}/bundle`
+- `POST /v1/themes`
+- `PUT /v1/themes/{id}`
+- `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog`
 
 Behavior expectations:
 - Always run ELKJS layout before SVG rendering.
-- Profile bundles are schema-versioned (`v1`) and checksumed.
-- Published profile versions are immutable.
+- Profile/theme bundles are schema-versioned (`v1`) and checksumed.
+- Published profile/theme versions are immutable.
 - Return clear status codes for validation, timeout, size, and runtime failures.
 - Keep OpenAPI docs accurate and available.
 
@@ -49,12 +55,14 @@ Environment variables:
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS`
 - `GRAPHAPI_MAX_REQUEST_BYTES`
 - `GRAPHAPI_PROFILE_STORE_PATH`
+- `GRAPHAPI_THEME_STORE_PATH`
 - `GRAPHAPI_DEFAULT_RENDER_CSS_PATH`
 
 ## Dependencies and Integration
 - GraphLoom: input validation, enrichment, and layout integration.
 - GraphRender: SVG generation from laid-out graph data.
-- Profile store: canonical source for runtime CSS and ELK settings.
+- Profile store: canonical source for runtime ELK + type catalog settings.
+- Theme store: canonical source for runtime render CSS settings.
 
 ## Testing Expectations
 - `python -m pytest -q`
