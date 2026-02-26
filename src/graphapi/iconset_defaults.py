@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from graphloom import sample_settings
 
-from .profile_v2_contract import IconsetCreateRequestV1, normalize_iconify_name, normalize_type_key
+from .profile_contract import IconsetCreateRequestV1, normalize_iconify_name, normalize_type_key
 
 
 def default_iconset_create_request() -> IconsetCreateRequestV1:

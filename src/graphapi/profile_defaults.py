@@ -15,15 +15,21 @@ _DEFAULT_LINK_TYPES = [
 
 
 def default_profile_create_request() -> ProfileCreateRequestV1:
-    defaults = sample_settings()
-    node_types = sorted({str(key).lower() for key in defaults.type_icon_map.keys()})
+    settings = sample_settings().model_dump(by_alias=True, exclude_none=True, mode="json")
+    settings["type_icon_map"] = {}
 
     return ProfileCreateRequestV1.model_validate(
         {
             "profileId": "default",
             "name": "Default Layout Profile",
-            "nodeTypes": node_types,
             "linkTypes": _DEFAULT_LINK_TYPES,
-            "elkSettings": defaults.model_dump(by_alias=True, exclude_none=True, mode="json"),
+            "elkSettings": settings,
+            "iconsetRefs": [
+                {
+                    "iconsetId": "default",
+                    "iconsetVersion": 1,
+                }
+            ],
+            "iconConflictPolicy": "reject",
         }
     )
