@@ -11,7 +11,9 @@ FastAPI service that converts GraphLoom minimal JSON input into SVG output using
 
 - FastAPI HTTP service with OpenAPI docs (`/docs`)
 - Canonical layout profile service (`/v1/profiles*`) with draft/publish lifecycle
+- Canonical layout profile v2 service (`/v2/profiles*`) with iconset references + deterministic resolution
 - Canonical render theme service (`/v1/themes*`) with draft/publish lifecycle
+- Canonical node-type iconset service (`/v2/iconsets*`) with draft/publish lifecycle
 - `POST /render/svg` endpoint for JSON-to-SVG conversion
 - Optional `profile_id` and `theme_id` query parameters on `POST /render/svg` for layout + render selection
 - `POST /validate` endpoint for lightweight JSON validation
@@ -40,6 +42,15 @@ GraphAPI is the canonical runtime service for GraphRapids consumers.
 - `PUT /v1/themes/{id}`
 - `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog?profile_id=...`
+- `GET /v2/autocomplete/catalog?profile_id=...`
+- `GET /v2/profiles/{id}/iconset-resolution`
+- `GET /v2/iconsets`
+- `GET /v2/iconsets/{id}`
+- `GET /v2/iconsets/{id}/bundle`
+- `POST /v2/iconsets`
+- `PUT /v2/iconsets/{id}`
+- `POST /v2/iconsets/{id}/publish`
+- `POST /v2/iconsets/resolve`
 
 ### Layout Profile Schema (v1)
 
@@ -77,6 +88,7 @@ Each theme bundle carries:
   - `stage=draft`: current mutable draft
 
 Consumers should use both profile and theme version/checksum values for deterministic cache invalidation.
+For v2 profiles, consumers should also include `iconsetResolutionChecksum`.
 
 ## Requirements
 
@@ -131,7 +143,9 @@ Environment variables:
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS` (default: `15`)
 - `GRAPHAPI_MAX_REQUEST_BYTES` (default: `1048576`)
 - `GRAPHAPI_PROFILE_STORE_PATH` (default: `~/.cache/graphapi/profiles.v1.json`)
+- `GRAPHAPI_PROFILE_V2_STORE_PATH` (default: `~/.cache/graphapi/profiles.v2.json`)
 - `GRAPHAPI_THEME_STORE_PATH` (default: `~/.cache/graphapi/themes.v1.json`)
+- `GRAPHAPI_ICONSET_STORE_PATH` (default: `~/.cache/graphapi/iconsets.v1.json`)
 - `GRAPHAPI_DEFAULT_RENDER_CSS_PATH` (optional override for default theme CSS source)
 
 ## Python API

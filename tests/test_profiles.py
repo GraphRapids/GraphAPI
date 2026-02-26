@@ -7,6 +7,10 @@ from fastapi.testclient import TestClient
 
 from graphapi.profile_defaults import default_profile_create_request
 from graphapi.profile_store import ProfileStore
+from graphapi.iconset_defaults import default_iconset_create_request
+from graphapi.iconset_store import IconsetStore
+from graphapi.profile_v2_defaults import default_profile_create_request_v2
+from graphapi.profile_v2_store import ProfileStoreV2
 from graphapi.theme_defaults import default_theme_create_request
 from graphapi.theme_store import ThemeStore
 
@@ -18,10 +22,16 @@ graphapi_module = importlib.import_module("graphapi.app")
 def client(tmp_path, monkeypatch):
     profile_store = ProfileStore(tmp_path / "profiles.v1.json")
     profile_store.ensure_default_profile(default_profile_create_request())
+    iconset_store = IconsetStore(tmp_path / "iconsets.v1.json")
+    iconset_store.ensure_default_iconset(default_iconset_create_request())
+    profile_store_v2 = ProfileStoreV2(tmp_path / "profiles.v2.json", iconset_store)
+    profile_store_v2.ensure_default_profile(default_profile_create_request_v2())
     theme_store = ThemeStore(tmp_path / "themes.v1.json")
     theme_store.ensure_default_theme(default_theme_create_request())
 
     monkeypatch.setattr(graphapi_module, "profile_store", profile_store)
+    monkeypatch.setattr(graphapi_module, "iconset_store", iconset_store)
+    monkeypatch.setattr(graphapi_module, "profile_store_v2", profile_store_v2)
     monkeypatch.setattr(graphapi_module, "theme_store", theme_store)
     return TestClient(graphapi_module.app)
 
@@ -250,6 +260,17 @@ def test_openapi_includes_profile_and_theme_contract_endpoints(client: TestClien
     assert "/v1/themes/{id}/bundle" in paths
     assert "/v1/themes/{id}/publish" in paths
     assert "/v1/autocomplete/catalog" in paths
+    assert "/v2/iconsets" in paths
+    assert "/v2/iconsets/{id}" in paths
+    assert "/v2/iconsets/{id}/bundle" in paths
+    assert "/v2/iconsets/{id}/publish" in paths
+    assert "/v2/iconsets/resolve" in paths
+    assert "/v2/profiles" in paths
+    assert "/v2/profiles/{id}" in paths
+    assert "/v2/profiles/{id}/bundle" in paths
+    assert "/v2/profiles/{id}/publish" in paths
+    assert "/v2/profiles/{id}/iconset-resolution" in paths
+    assert "/v2/autocomplete/catalog" in paths
 
     schemas = openapi["components"]["schemas"]
     assert "ProfileBundleV1" in schemas
@@ -257,3 +278,166 @@ def test_openapi_includes_profile_and_theme_contract_endpoints(client: TestClien
     assert "ProfileCreateRequestV1" in schemas
     assert "ThemeCreateRequestV1" in schemas
     assert "AutocompleteCatalogResponseV1" in schemas
+    assert "IconsetBundleV1" in schemas
+    assert "ProfileBundleV2" in schemas
+    assert "AutocompleteCatalogResponseV2" in schemas
+
+
+def test_iconsets_crud_and_resolve_flow(client: TestClient) -> None:
+    create_a = client.post(
+        "/v2/iconsets",
+        json={
+            "iconsetId": "team-a",
+            "name": "Team A",
+            "entries": {
+                "router": "mdi:router",
+                "switch": "mdi:switch",
+            },
+        },
+    )
+    assert create_a.status_code == 201
+    assert create_a.json()["draft"]["iconsetVersion"] == 1
+
+    create_b = client.post(
+        "/v2/iconsets",
+        json={
+            "iconsetId": "team-b",
+            "name": "Team B",
+            "entries": {
+                "router": "material-symbols:router-outline",
+                "gateway": "mdi:gate",
+            },
+        },
+    )
+    assert create_b.status_code == 201
+
+    assert client.post("/v2/iconsets/team-a/publish").status_code == 200
+    assert client.post("/v2/iconsets/team-b/publish").status_code == 200
+
+    conflict = client.post(
+        "/v2/iconsets/resolve",
+        json={
+            "iconsetRefs": [
+                {"iconsetId": "team-a", "stage": "published", "iconsetVersion": 1},
+                {"iconsetId": "team-b", "stage": "published", "iconsetVersion": 1},
+            ],
+            "conflictPolicy": "reject",
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "ICONSET_KEY_CONFLICT"
+
+    last_wins = client.post(
+        "/v2/iconsets/resolve",
+        json={
+            "iconsetRefs": [
+                {"iconsetId": "team-a", "stage": "published", "iconsetVersion": 1},
+                {"iconsetId": "team-b", "stage": "published", "iconsetVersion": 1},
+            ],
+            "conflictPolicy": "last-wins",
+        },
+    )
+    assert last_wins.status_code == 200
+    body = last_wins.json()
+    assert body["resolvedEntries"]["router"] == "material-symbols:router-outline"
+    assert body["resolvedEntries"]["switch"] == "mdi:switch"
+    assert body["resolvedEntries"]["gateway"] == "mdi:gate"
+    assert body["checksum"]
+
+
+def test_profile_v2_catalog_resolution_and_render_headers(client: TestClient, monkeypatch) -> None:
+    # Create and publish iconset that will drive node type resolution.
+    created_iconset = client.post(
+        "/v2/iconsets",
+        json={
+            "iconsetId": "telecom",
+            "name": "Telecom",
+            "entries": {
+                "router": "mdi:router",
+                "gateway": "mdi:gate",
+                "firewall": "mdi:shield",
+            },
+        },
+    )
+    assert created_iconset.status_code == 201
+    assert client.post("/v2/iconsets/telecom/publish").status_code == 200
+
+    default_bundle = client.get(
+        "/v2/profiles/default/bundle",
+        params={"stage": "draft"},
+    )
+    assert default_bundle.status_code == 200
+    elk_settings = default_bundle.json()["elkSettings"]
+
+    create_profile = client.post(
+        "/v2/profiles",
+        json={
+            "profileId": "telecom-profile",
+            "name": "Telecom Profile",
+            "linkTypes": ["directed", "dependency"],
+            "elkSettings": elk_settings,
+            "iconsetRefs": [
+                {"iconsetId": "telecom", "iconsetVersion": 1},
+            ],
+            "iconConflictPolicy": "reject",
+        },
+    )
+    assert create_profile.status_code == 201
+    assert create_profile.json()["draft"]["profileVersion"] == 1
+
+    published = client.post("/v2/profiles/telecom-profile/publish")
+    assert published.status_code == 200
+    published_body = published.json()
+    assert published_body["nodeTypes"] == ["firewall", "gateway", "router"]
+    assert published_body["typeIconMap"]["gateway"] == "mdi:gate"
+    assert published_body["iconsetResolutionChecksum"]
+
+    catalog = client.get(
+        "/v2/autocomplete/catalog",
+        params={"profile_id": "telecom-profile", "stage": "published"},
+    )
+    assert catalog.status_code == 200
+    catalog_body = catalog.json()
+    assert catalog_body["profileVersion"] == 1
+    assert catalog_body["nodeTypes"] == ["firewall", "gateway", "router"]
+    assert catalog_body["linkTypes"] == ["directed", "dependency"]
+    assert catalog_body["iconsetResolutionChecksum"] == published_body["iconsetResolutionChecksum"]
+
+    resolution = client.get(
+        "/v2/profiles/telecom-profile/iconset-resolution",
+        params={"stage": "published"},
+    )
+    assert resolution.status_code == 200
+    resolution_body = resolution.json()
+    assert resolution_body["resolvedEntries"]["router"] == "mdi:router"
+    assert resolution_body["checksum"] == published_body["iconsetResolutionChecksum"]
+    assert resolution_body["sources"] == [
+        {
+            "iconsetId": "telecom",
+            "iconsetVersion": 1,
+            "checksum": resolution_body["sources"][0]["checksum"],
+        }
+    ]
+
+    theme_payload = _new_theme_payload("night-v2")
+    assert client.post("/v1/themes", json=theme_payload).status_code == 201
+    assert client.post("/v1/themes/night-v2/publish").status_code == 200
+
+    monkeypatch.setattr(graphapi_module, "layout_with_elkjs", lambda payload, *, mode, node_cmd: payload)
+
+    render_response = client.post(
+        "/render/svg",
+        params={"profile_id": "telecom-profile", "theme_id": "night-v2"},
+        json={
+            "nodes": [
+                {"name": "A", "type": "router"},
+                {"name": "B", "type": "gateway"},
+            ],
+            "links": [{"from": "A", "to": "B", "type": "directed"}],
+        },
+    )
+    assert render_response.status_code == 200
+    assert render_response.headers["x-graphapi-profile-id"] == "telecom-profile"
+    assert render_response.headers["x-graphapi-iconset-resolution-checksum"] == published_body["iconsetResolutionChecksum"]
+    assert render_response.headers["x-graphapi-iconset-sources"] == "telecom@1"
+    assert render_response.headers["x-graphapi-runtime-checksum"]

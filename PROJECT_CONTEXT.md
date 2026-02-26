@@ -1,11 +1,12 @@
 # GraphAPI - Project Context
 
 ## Purpose
-GraphAPI is the FastAPI service layer that validates minimal graph input, applies GraphLoom enrichment/layout, returns rendered SVG output via GraphRender, and serves as the canonical runtime layout-profile + render-theme service.
+GraphAPI is the FastAPI service layer that validates minimal graph input, applies GraphLoom enrichment/layout, returns rendered SVG output via GraphRender, and serves as the canonical runtime layout-profile + iconset + render-theme service.
 
 ## Primary Goals
 - Expose a stable HTTP API for validation and rendering.
 - Expose contract-first layout profile + render theme APIs with explicit schema versioning.
+- Expose contract-first iconset APIs and deterministic profile iconset resolution.
 - Keep request/response behavior predictable with clear error mapping.
 - Enforce runtime safety limits (request size, timeout, CORS).
 - Keep schema and runtime selector endpoints aligned with layout profile and render theme bundles.
@@ -38,10 +39,26 @@ Primary endpoints:
 - `PUT /v1/themes/{id}`
 - `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog`
+- `GET /v2/iconsets`
+- `GET /v2/iconsets/{id}`
+- `GET /v2/iconsets/{id}/bundle`
+- `POST /v2/iconsets`
+- `PUT /v2/iconsets/{id}`
+- `POST /v2/iconsets/{id}/publish`
+- `POST /v2/iconsets/resolve`
+- `GET /v2/profiles`
+- `GET /v2/profiles/{id}`
+- `GET /v2/profiles/{id}/bundle`
+- `POST /v2/profiles`
+- `PUT /v2/profiles/{id}`
+- `POST /v2/profiles/{id}/publish`
+- `GET /v2/profiles/{id}/iconset-resolution`
+- `GET /v2/autocomplete/catalog`
 
 Behavior expectations:
 - Always run ELKJS layout before SVG rendering.
 - Profile/theme bundles are schema-versioned (`v1`) and checksumed.
+- Profile v2 bundles include deterministic iconset resolution checksums.
 - Published profile/theme versions are immutable.
 - Return clear status codes for validation, timeout, size, and runtime failures.
 - Keep OpenAPI docs accurate and available.
@@ -55,7 +72,9 @@ Environment variables:
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS`
 - `GRAPHAPI_MAX_REQUEST_BYTES`
 - `GRAPHAPI_PROFILE_STORE_PATH`
+- `GRAPHAPI_PROFILE_V2_STORE_PATH`
 - `GRAPHAPI_THEME_STORE_PATH`
+- `GRAPHAPI_ICONSET_STORE_PATH`
 - `GRAPHAPI_DEFAULT_RENDER_CSS_PATH`
 
 ## Dependencies and Integration

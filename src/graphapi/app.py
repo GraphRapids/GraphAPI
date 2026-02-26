@@ -28,8 +28,30 @@ from .profile_contract import (
     ThemeRecordV1,
     ThemeUpdateRequestV1,
 )
+from .iconset_defaults import default_iconset_create_request
+from .iconset_store import IconsetStore, IconsetStoreError
 from .profile_defaults import default_profile_create_request
 from .profile_store import ProfileStore, ProfileStoreError
+from .profile_v2_contract import (
+    AutocompleteCatalogResponseV2,
+    IconsetBundleV1,
+    IconsetCreateRequestV1,
+    IconsetListResponseV1,
+    IconsetRecordV1,
+    IconsetResolutionRefV1,
+    IconsetResolutionResultV1,
+    IconsetResolveRequestV1,
+    IconsetUpdateRequestV1,
+    ProfileBundleV2,
+    ProfileCreateRequestV2,
+    ProfileIconsetResolutionResponseV1,
+    ProfileListResponseV2,
+    ProfileRecordV2,
+    ProfileUpdateRequestV2,
+    compute_iconset_resolution_checksum,
+)
+from .profile_v2_defaults import default_profile_create_request_v2
+from .profile_v2_store import ProfileStoreV2, ProfileStoreV2Error
 from .theme_defaults import default_theme_create_request
 from .theme_store import ThemeStore, ThemeStoreError
 
@@ -58,6 +80,12 @@ app.add_middleware(
 profile_store = ProfileStore.from_env()
 profile_store.ensure_default_profile(default_profile_create_request())
 
+iconset_store = IconsetStore.from_env()
+iconset_store.ensure_default_iconset(default_iconset_create_request())
+
+profile_store_v2 = ProfileStoreV2.from_env(iconset_store)
+profile_store_v2.ensure_default_profile(default_profile_create_request_v2())
+
 theme_store = ThemeStore.from_env()
 theme_store.ensure_default_theme(default_theme_create_request())
 
@@ -76,14 +104,31 @@ def _theme_http_error(exc: ThemeStoreError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
 
 
+def _iconset_http_error(exc: IconsetStoreError) -> HTTPException:
+    body = ErrorResponse(
+        error=ErrorBody(code=exc.code, message=exc.message, details=exc.details)
+    )
+    return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
+
+
+def _profile_v2_http_error(exc: ProfileStoreV2Error) -> HTTPException:
+    body = ErrorResponse(
+        error=ErrorBody(code=exc.code, message=exc.message, details=exc.details)
+    )
+    return HTTPException(status_code=exc.status_code, detail=body.model_dump()["error"])
+
+
 def _runtime_checksum(
-    profile_bundle: ProfileBundleV1 | None,
-    theme_bundle: ThemeBundleV1 | None,
+    *,
+    profile_checksum: str = "",
+    theme_checksum: str = "",
+    iconset_resolution_checksum: str = "",
 ) -> str:
     material = "|".join(
         [
-            profile_bundle.checksum if profile_bundle else "",
-            theme_bundle.checksum if theme_bundle else "",
+            profile_checksum,
+            theme_checksum,
+            iconset_resolution_checksum,
         ]
     )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -92,13 +137,24 @@ def _runtime_checksum(
 def render_svg_from_graph(
     graph: MinimalGraphIn,
     *,
-    profile_bundle: ProfileBundleV1 | None = None,
+    profile_bundle: ProfileBundleV1 | ProfileBundleV2 | None = None,
+    profile_bundle_v1: ProfileBundleV1 | None = None,
+    profile_bundle_v2: ProfileBundleV2 | None = None,
     theme_bundle: ThemeBundleV1 | None = None,
 ) -> str:
-    if profile_bundle is None:
-        settings = sample_settings()
+    if profile_bundle_v2 is None and isinstance(profile_bundle, ProfileBundleV2):
+        profile_bundle_v2 = profile_bundle
+    if profile_bundle_v1 is None and isinstance(profile_bundle, ProfileBundleV1):
+        profile_bundle_v1 = profile_bundle
+
+    if profile_bundle_v2 is not None:
+        settings_payload = dict(profile_bundle_v2.elkSettings)
+        settings_payload["type_icon_map"] = profile_bundle_v2.typeIconMap
+        settings = ElkSettings.model_validate(settings_payload)
+    elif profile_bundle_v1 is not None:
+        settings = ElkSettings.model_validate(profile_bundle_v1.elkSettings)
     else:
-        settings = ElkSettings.model_validate(profile_bundle.elkSettings)
+        settings = sample_settings()
 
     canvas = build_canvas(graph, settings)
     payload = canvas.model_dump(by_alias=True, exclude_none=True)
@@ -243,6 +299,323 @@ def publish_profile_v1(id: str) -> ProfileBundleV1:
 
 
 @app.get(
+    "/v2/iconsets",
+    response_model=IconsetListResponseV1,
+    tags=["iconsets"],
+)
+def list_iconsets_v2() -> IconsetListResponseV1:
+    try:
+        return iconset_store.list_iconsets()
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+
+
+@app.get(
+    "/v2/iconsets/{id}",
+    response_model=IconsetRecordV1,
+    tags=["iconsets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_iconset_v2(id: str) -> IconsetRecordV1:
+    try:
+        return iconset_store.get_iconset(id)
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+
+
+@app.get(
+    "/v2/iconsets/{id}/bundle",
+    response_model=IconsetBundleV1,
+    tags=["iconsets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_iconset_bundle_v2(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    iconset_version: int | None = Query(default=None, ge=1),
+) -> IconsetBundleV1:
+    try:
+        return iconset_store.get_bundle(
+            id,
+            stage=stage,
+            iconset_version=iconset_version,
+        )
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+
+
+@app.post(
+    "/v2/iconsets",
+    response_model=IconsetRecordV1,
+    status_code=201,
+    tags=["iconsets"],
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def create_iconset_v2(request: IconsetCreateRequestV1) -> IconsetRecordV1:
+    try:
+        return iconset_store.create_iconset(request)
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+
+
+@app.put(
+    "/v2/iconsets/{id}",
+    response_model=IconsetRecordV1,
+    tags=["iconsets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def update_iconset_v2(
+    id: str,
+    request: IconsetUpdateRequestV1,
+) -> IconsetRecordV1:
+    try:
+        return iconset_store.update_iconset(id, request)
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+
+
+@app.post(
+    "/v2/iconsets/{id}/publish",
+    response_model=IconsetBundleV1,
+    tags=["iconsets"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def publish_iconset_v2(id: str) -> IconsetBundleV1:
+    try:
+        return iconset_store.publish_iconset(id)
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+
+
+@app.post(
+    "/v2/iconsets/resolve",
+    response_model=IconsetResolutionResultV1,
+    tags=["iconsets"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def resolve_iconsets_v2(request: IconsetResolveRequestV1) -> IconsetResolutionResultV1:
+    resolved_entries: dict[str, str] = {}
+    sources = []
+    key_sources: dict[str, dict] = {}
+
+    for ref in request.iconsetRefs:
+        try:
+            bundle = iconset_store.get_bundle(
+                ref.iconsetId,
+                stage=ref.stage,
+                iconset_version=ref.iconsetVersion,
+            )
+        except IconsetStoreError as exc:
+            raise _iconset_http_error(exc) from exc
+
+        source = {
+            "iconsetId": bundle.iconsetId,
+            "iconsetVersion": bundle.iconsetVersion,
+            "checksum": bundle.checksum,
+        }
+        sources.append(source)
+
+        for key, icon in bundle.entries.items():
+            existing = resolved_entries.get(key)
+            key_sources.setdefault(
+                key,
+                {
+                    "key": key,
+                    "icon": icon,
+                    "selectedFrom": source,
+                    "candidates": [],
+                },
+            )
+            key_sources[key]["candidates"].append(source)
+
+            if existing is None:
+                resolved_entries[key] = icon
+                continue
+
+            if existing == icon:
+                continue
+
+            if request.conflictPolicy == "reject":
+                body = ErrorResponse(
+                    error=ErrorBody(
+                        code="ICONSET_KEY_CONFLICT",
+                        message=(
+                            f"Node type key '{key}' maps to multiple icons under reject policy."
+                        ),
+                        details={
+                            "key": key,
+                            "existingIcon": existing,
+                            "incomingIcon": icon,
+                            "conflictPolicy": request.conflictPolicy,
+                        },
+                    )
+                )
+                raise HTTPException(status_code=409, detail=body.model_dump()["error"])
+
+            if request.conflictPolicy == "last-wins":
+                resolved_entries[key] = icon
+                key_sources[key]["icon"] = icon
+                key_sources[key]["selectedFrom"] = source
+
+    if not resolved_entries:
+        body = ErrorResponse(
+            error=ErrorBody(
+                code="PROFILE_ICONSET_REF_INVALID",
+                message="Resolved iconset map is empty.",
+            )
+        )
+        raise HTTPException(status_code=400, detail=body.model_dump()["error"])
+
+    sorted_entries = dict(sorted(resolved_entries.items(), key=lambda item: item[0]))
+    checksum = compute_iconset_resolution_checksum(
+        conflict_policy=request.conflictPolicy,
+        sources=sources,
+        resolved_entries=sorted_entries,
+    )
+
+    return IconsetResolutionResultV1.model_validate(
+        {
+            "conflictPolicy": request.conflictPolicy,
+            "resolvedEntries": sorted_entries,
+            "sources": sources,
+            "keySources": key_sources,
+            "checksum": checksum,
+        }
+    )
+
+
+@app.get(
+    "/v2/profiles",
+    response_model=ProfileListResponseV2,
+    tags=["profiles-v2"],
+)
+def list_profiles_v2() -> ProfileListResponseV2:
+    try:
+        return profile_store_v2.list_profiles()
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.get(
+    "/v2/profiles/{id}",
+    response_model=ProfileRecordV2,
+    tags=["profiles-v2"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_profile_v2(id: str) -> ProfileRecordV2:
+    try:
+        return profile_store_v2.get_profile(id)
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.get(
+    "/v2/profiles/{id}/bundle",
+    response_model=ProfileBundleV2,
+    tags=["profiles-v2"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_profile_bundle_v2(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    profile_version: int | None = Query(default=None, ge=1),
+) -> ProfileBundleV2:
+    try:
+        return profile_store_v2.get_bundle(
+            id,
+            stage=stage,
+            profile_version=profile_version,
+        )
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.post(
+    "/v2/profiles",
+    response_model=ProfileRecordV2,
+    status_code=201,
+    tags=["profiles-v2"],
+    responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def create_profile_v2(request: ProfileCreateRequestV2) -> ProfileRecordV2:
+    try:
+        return profile_store_v2.create_profile(request)
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.put(
+    "/v2/profiles/{id}",
+    response_model=ProfileRecordV2,
+    tags=["profiles-v2"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def update_profile_v2(
+    id: str,
+    request: ProfileUpdateRequestV2,
+) -> ProfileRecordV2:
+    try:
+        return profile_store_v2.update_profile(id, request)
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.post(
+    "/v2/profiles/{id}/publish",
+    response_model=ProfileBundleV2,
+    tags=["profiles-v2"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def publish_profile_v2(id: str) -> ProfileBundleV2:
+    try:
+        return profile_store_v2.publish_profile(id)
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.get(
+    "/v2/profiles/{id}/iconset-resolution",
+    response_model=ProfileIconsetResolutionResponseV1,
+    tags=["profiles-v2"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_profile_iconset_resolution_v2(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    profile_version: int | None = Query(default=None, ge=1),
+) -> ProfileIconsetResolutionResponseV1:
+    try:
+        return profile_store_v2.get_iconset_resolution(
+            id,
+            stage=stage,
+            profile_version=profile_version,
+        )
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.get(
+    "/v2/autocomplete/catalog",
+    response_model=AutocompleteCatalogResponseV2,
+    tags=["profiles-v2"],
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_autocomplete_catalog_v2(
+    profile_id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    profile_version: int | None = Query(default=None, ge=1),
+) -> AutocompleteCatalogResponseV2:
+    try:
+        return profile_store_v2.get_autocomplete_catalog(
+            profile_id,
+            stage=stage,
+            profile_version=profile_version,
+        )
+    except ProfileStoreV2Error as exc:
+        raise _profile_v2_http_error(exc) from exc
+
+
+@app.get(
     "/v1/themes",
     response_model=ThemeListResponseV1,
     tags=["themes"],
@@ -367,18 +740,28 @@ def render_svg(
     theme_stage: Literal["draft", "published"] = "published",
     theme_version: int | None = Query(default=None, ge=1),
 ) -> Response:
-    profile_bundle: ProfileBundleV1 | None = None
+    profile_bundle_v1: ProfileBundleV1 | None = None
+    profile_bundle_v2: ProfileBundleV2 | None = None
     theme_bundle: ThemeBundleV1 | None = None
 
     if profile_id:
         try:
-            profile_bundle = profile_store.get_bundle(
+            profile_bundle_v2 = profile_store_v2.get_bundle(
                 profile_id,
                 stage=profile_stage,
                 profile_version=profile_version,
             )
-        except ProfileStoreError as exc:
-            raise _profile_http_error(exc) from exc
+        except ProfileStoreV2Error as v2_exc:
+            if v2_exc.code not in {"PROFILE_NOT_FOUND", "PROFILE_NOT_PUBLISHED", "PROFILE_VERSION_NOT_FOUND"}:
+                raise _profile_v2_http_error(v2_exc) from v2_exc
+            try:
+                profile_bundle_v1 = profile_store.get_bundle(
+                    profile_id,
+                    stage=profile_stage,
+                    profile_version=profile_version,
+                )
+            except ProfileStoreError as exc:
+                raise _profile_http_error(exc) from exc
 
     if theme_id:
         try:
@@ -391,6 +774,11 @@ def render_svg(
             raise _theme_http_error(exc) from exc
 
     try:
+        profile_bundle = (
+            profile_bundle_v2
+            if profile_bundle_v2 is not None
+            else profile_bundle_v1
+        )
         svg = render_svg_from_graph(
             graph,
             profile_bundle=profile_bundle,
@@ -400,16 +788,39 @@ def render_svg(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     headers: dict[str, str] = {}
-    if profile_bundle is not None:
-        headers["X-GraphAPI-Profile-Id"] = profile_bundle.profileId
-        headers["X-GraphAPI-Profile-Version"] = str(profile_bundle.profileVersion)
-        headers["X-GraphAPI-Profile-Checksum"] = profile_bundle.checksum
+    if profile_bundle_v2 is not None:
+        headers["X-GraphAPI-Profile-Id"] = profile_bundle_v2.profileId
+        headers["X-GraphAPI-Profile-Version"] = str(profile_bundle_v2.profileVersion)
+        headers["X-GraphAPI-Profile-Checksum"] = profile_bundle_v2.checksum
+        headers["X-GraphAPI-Iconset-Resolution-Checksum"] = profile_bundle_v2.iconsetResolutionChecksum
+        headers["X-GraphAPI-Iconset-Sources"] = ",".join(
+            [
+                f"{ref.iconsetId}@{ref.iconsetVersion}"
+                for ref in profile_bundle_v2.iconsetRefs
+            ]
+        )
+    elif profile_bundle_v1 is not None:
+        headers["X-GraphAPI-Profile-Id"] = profile_bundle_v1.profileId
+        headers["X-GraphAPI-Profile-Version"] = str(profile_bundle_v1.profileVersion)
+        headers["X-GraphAPI-Profile-Checksum"] = profile_bundle_v1.checksum
     if theme_bundle is not None:
         headers["X-GraphAPI-Theme-Id"] = theme_bundle.themeId
         headers["X-GraphAPI-Theme-Version"] = str(theme_bundle.themeVersion)
         headers["X-GraphAPI-Theme-Checksum"] = theme_bundle.checksum
 
-    if profile_bundle is not None or theme_bundle is not None:
-        headers["X-GraphAPI-Runtime-Checksum"] = _runtime_checksum(profile_bundle, theme_bundle)
+    if profile_bundle_v1 is not None or profile_bundle_v2 is not None or theme_bundle is not None:
+        headers["X-GraphAPI-Runtime-Checksum"] = _runtime_checksum(
+            profile_checksum=(
+                profile_bundle_v2.checksum
+                if profile_bundle_v2 is not None
+                else profile_bundle_v1.checksum if profile_bundle_v1 is not None else ""
+            ),
+            theme_checksum=theme_bundle.checksum if theme_bundle is not None else "",
+            iconset_resolution_checksum=(
+                profile_bundle_v2.iconsetResolutionChecksum
+                if profile_bundle_v2 is not None
+                else ""
+            ),
+        )
 
     return Response(content=svg, media_type="image/svg+xml", headers=headers)
