@@ -19,6 +19,7 @@ TYPE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
 LINK_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
 ICONIFY_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-_][a-z0-9]+)*$")
 CHECKSUM_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+THEME_VARIABLE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
 MIN_TYPE_KEY_LENGTH = 2
 MAX_TYPE_KEY_LENGTH = 64
@@ -26,8 +27,12 @@ MAX_ICONSET_ENTRIES = 2_000
 MAX_RESOLVED_TYPE_KEYS = 5_000
 MAX_ICONSET_REFS = 8
 MAX_LINK_TYPES = 256
+MAX_THEME_VARIABLES = 2_000
+MAX_THEME_CSS_BODY_BYTES = 500_000
+MAX_THEME_VARIABLE_VALUE_LENGTH = 2_048
 
 IconConflictPolicy = Literal["reject", "first-wins", "last-wins"]
+ThemeVariableValueType = Literal["color", "float", "length", "percent", "string", "custom"]
 
 
 class ErrorBody(BaseModel):
@@ -64,6 +69,86 @@ def normalize_theme_id(value: str) -> str:
     if not THEME_ID_PATTERN.fullmatch(theme_id):
         raise ValueError("themeId must match ^[a-z0-9][a-z0-9_-]{1,63}$")
     return theme_id
+
+
+def normalize_theme_variable_key(value: str) -> str:
+    key = str(value).strip().lower()
+    while key.startswith("--"):
+        key = key[2:]
+    key = key.replace("_", "-")
+    key = re.sub(r"\s+", "-", key)
+    key = re.sub(r"-+", "-", key).strip("-")
+    if not key:
+        raise ValueError("theme variable key must not be empty.")
+    if not THEME_VARIABLE_KEY_PATTERN.fullmatch(key):
+        raise ValueError(
+            "theme variable key must match ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$ after normalization."
+        )
+    return key
+
+
+def _validate_theme_variable_value(value_type: ThemeVariableValueType, raw_value: str) -> str:
+    value = str(raw_value).strip()
+    if not value:
+        raise ValueError("theme variable values must not be empty.")
+    if len(value) > MAX_THEME_VARIABLE_VALUE_LENGTH:
+        raise ValueError(
+            f"theme variable values exceed max length {MAX_THEME_VARIABLE_VALUE_LENGTH}."
+        )
+    if any(token in value for token in (";", "{", "}")):
+        raise ValueError("theme variable values must not contain ';', '{', or '}'.")
+
+    if value_type == "float":
+        try:
+            float(value)
+        except ValueError as exc:
+            raise ValueError("float theme variable values must be parseable numbers.") from exc
+    elif value_type == "length":
+        if not re.fullmatch(r"-?(?:\d+|\d+\.\d+|\.\d+)(?:px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)", value):
+            raise ValueError("length theme variable values must include a CSS length unit.")
+    elif value_type == "percent":
+        if not re.fullmatch(r"-?(?:\d+|\d+\.\d+|\.\d+)%", value):
+            raise ValueError("percent theme variable values must end with '%'.")
+    elif value_type == "color":
+        color_ok = bool(
+            re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", value)
+            or re.fullmatch(
+                r"(?:rgb|rgba|hsl|hsla|lab|lch|oklab|oklch|color|var|light-dark)\([^\)]*\)",
+                value,
+                flags=re.IGNORECASE,
+            )
+            or re.fullmatch(r"[a-zA-Z][a-zA-Z0-9-]*", value)
+            or value.lower()
+            in {
+                "transparent",
+                "currentcolor",
+                "inherit",
+                "initial",
+                "unset",
+                "revert",
+                "revert-layer",
+            }
+        )
+        if not color_ok:
+            raise ValueError("color theme variable values must be valid CSS color-like tokens.")
+
+    return value
+
+
+def compile_theme_render_css(css_body: str, variables: dict[str, dict[str, str]]) -> str:
+    lines: list[str] = [":root {", "  color-scheme: light dark;"]
+    for key in sorted(variables.keys()):
+        lines.append(f"  --light-{key}: {variables[key]['lightValue']};")
+        lines.append(f"  --dark-{key}: {variables[key]['darkValue']};")
+        lines.append(
+            f"  --{key}: light-dark(var(--light-{key}), var(--dark-{key}));"
+        )
+    lines.append("}")
+    managed_block = "\n".join(lines)
+    body = str(css_body)
+    if body and not body.endswith("\n"):
+        body = f"{body}\n"
+    return f"{managed_block}\n\n{body}"
 
 
 def normalize_icon_set_id(value: str) -> str:
@@ -456,11 +541,42 @@ class AutocompleteCatalogResponseV1(BaseModel):
     linkTypes: list[str]
 
 
+class ThemeVariableV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    valueType: ThemeVariableValueType
+    lightValue: str = Field(min_length=1, max_length=MAX_THEME_VARIABLE_VALUE_LENGTH)
+    darkValue: str = Field(min_length=1, max_length=MAX_THEME_VARIABLE_VALUE_LENGTH)
+
+    @field_validator("lightValue")
+    @classmethod
+    def validate_light_value(cls, value: str, info) -> str:
+        value_type = info.data.get("valueType")
+        if value_type is None:
+            return str(value).strip()
+        return _validate_theme_variable_value(value_type, value)
+
+    @field_validator("darkValue")
+    @classmethod
+    def validate_dark_value(cls, value: str, info) -> str:
+        value_type = info.data.get("valueType")
+        if value_type is None:
+            return str(value).strip()
+        return _validate_theme_variable_value(value_type, value)
+
+
+class ThemeVariableUpsertRequestV1(ThemeVariableV1):
+    model_config = ConfigDict(extra="forbid")
+
+
 class ThemeEditableFieldsV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
-    renderCss: str = Field(min_length=1, max_length=500_000)
+    cssBody: str = Field(min_length=1)
+    variables: dict[str, ThemeVariableV1] = Field(
+        default_factory=dict, max_length=MAX_THEME_VARIABLES
+    )
 
     @field_validator("name")
     @classmethod
@@ -470,12 +586,43 @@ class ThemeEditableFieldsV1(BaseModel):
             raise ValueError("name must not be empty.")
         return text
 
-    @field_validator("renderCss")
+    @field_validator("cssBody")
     @classmethod
-    def validate_render_css(cls, value: str) -> str:
-        if not str(value).strip():
-            raise ValueError("renderCss must not be empty.")
-        return value
+    def validate_css_body(cls, value: str) -> str:
+        text = str(value)
+        if not text.strip():
+            raise ValueError("cssBody must not be empty.")
+        encoded = text.encode("utf-8")
+        if len(encoded) > MAX_THEME_CSS_BODY_BYTES:
+            raise ValueError(f"cssBody exceeds max payload size {MAX_THEME_CSS_BODY_BYTES} bytes.")
+        return text
+
+    @field_validator("variables")
+    @classmethod
+    def validate_variables(cls, values: dict[str, ThemeVariableV1]) -> dict[str, ThemeVariableV1]:
+        normalized: dict[str, ThemeVariableV1] = {}
+        for raw_key, raw_value in values.items():
+            key = normalize_theme_variable_key(raw_key)
+            if key in normalized:
+                raise ValueError(f"Duplicate theme variable key '{raw_key}'.")
+            normalized[key] = ThemeVariableV1.model_validate(raw_value)
+
+        if len(normalized) > MAX_THEME_VARIABLES:
+            raise ValueError(f"variables exceeds max size {MAX_THEME_VARIABLES}.")
+
+        return dict(sorted(normalized.items(), key=lambda item: item[0]))
+
+    @model_validator(mode="after")
+    def validate_css_body_conflicts(self):
+        css_text = self.cssBody.lower()
+        for key in self.variables.keys():
+            managed = [f"--{key}", f"--light-{key}", f"--dark-{key}"]
+            for managed_name in managed:
+                if re.search(rf"{re.escape(managed_name)}\s*:", css_text):
+                    raise ValueError(
+                        f"cssBody must not declare managed theme variable '{managed_name}'."
+                    )
+        return self
 
 
 class ThemeCreateRequestV1(ThemeEditableFieldsV1):
@@ -499,6 +646,7 @@ class ThemeBundleV1(ThemeEditableFieldsV1):
     schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
     themeId: str
     themeVersion: int = Field(ge=1)
+    renderCss: str = Field(min_length=1)
     updatedAt: datetime
     checksum: str = Field(min_length=64, max_length=64)
 
@@ -528,21 +676,6 @@ class ThemeListResponseV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     themes: list[ThemeSummaryV1]
-
-
-class _StoredThemeDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    themeId: str
-    draft: ThemeBundleV1
-    publishedVersions: list[ThemeBundleV1] = Field(default_factory=list)
-
-
-class ThemeStoreDocumentV1(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
-    themes: dict[str, _StoredThemeDocument] = Field(default_factory=dict)
 
 
 def canonical_iconset_bundle_payload(bundle_data: dict[str, Any]) -> dict[str, Any]:
@@ -641,6 +774,15 @@ def canonical_theme_bundle_payload(bundle_data: dict[str, Any]) -> dict[str, Any
         "themeId": bundle_data["themeId"],
         "themeVersion": bundle_data["themeVersion"],
         "name": bundle_data["name"],
+        "cssBody": bundle_data["cssBody"],
+        "variables": {
+            key: {
+                "valueType": value["valueType"],
+                "lightValue": value["lightValue"],
+                "darkValue": value["darkValue"],
+            }
+            for key, value in sorted(bundle_data["variables"].items(), key=lambda item: item[0])
+        },
         "renderCss": bundle_data["renderCss"],
     }
 

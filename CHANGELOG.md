@@ -10,3 +10,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Added
 
 - Initial template baseline.
+- Reworked v1 theme contract to support typed light/dark variables, compiled top-of-theme CSS variable blocks, and theme variable CRUD endpoints.

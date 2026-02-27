@@ -36,7 +36,7 @@ def client(tmp_path, monkeypatch):
     graph_type_store = GraphTypeStore(runtime_db_path, iconset_store, layout_set_store, link_set_store)
     graph_type_store.ensure_default_graph_type(default_graph_type_create_request())
 
-    theme_store = ThemeStore(tmp_path / "themes.v1.json")
+    theme_store = ThemeStore(runtime_db_path)
     theme_store.ensure_default_theme(default_theme_create_request())
 
     monkeypatch.setattr(graphapi_module, "iconset_store", iconset_store)

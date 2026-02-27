@@ -54,6 +54,8 @@ Primary endpoints:
 - `GET /v1/themes/{id}/bundle`
 - `POST /v1/themes`
 - `PUT /v1/themes/{id}`
+- `PUT /v1/themes/{id}/variables/{key}`
+- `DELETE /v1/themes/{id}/variables/{key}`
 - `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog?graph_type_id=...`
 - `GET /v1/icon-sets`
@@ -76,6 +78,8 @@ Behavior expectations:
 - Always run ELKJS layout before SVG rendering.
 - Graph type/layout set/link set/theme bundles are schema-versioned (`v1`) and checksumed.
 - Graph type bundles include deterministic icon-set + runtime resolution checksums.
+- Theme bundles include normalized `variables`, source `cssBody`, and compiled `renderCss`.
+- Theme variable declarations are managed at the top of served CSS and support light/dark values.
 - Published graph type/theme versions are immutable.
 - Return clear status codes for validation, timeout, size, and runtime failures.
 - Keep OpenAPI docs accurate and available.
@@ -92,7 +96,7 @@ Environment variables:
 - `GRAPHAPI_RUNTIME_DB_PATH`
 - `GRAPHAPI_LAYOUT_SET_STORE_PATH`
 - `GRAPHAPI_LINK_SET_STORE_PATH`
-- `GRAPHAPI_THEME_STORE_PATH`
+- `GRAPHAPI_THEME_STORE_PATH` (optional sqlite path alias; `.json` paths are treated as legacy import sources)
 - `GRAPHAPI_ICONSET_STORE_PATH`
 - `GRAPHAPI_DEFAULT_RENDER_CSS_PATH`
 
@@ -104,7 +108,7 @@ Environment variables:
 
 ## Testing Expectations
 - `python -m pytest -q`
-- `python -m py_compile main.py src/graphapi/__init__.py src/graphapi/__main__.py src/graphapi/app.py`
+- `python -m py_compile main.py src/graphapi/__init__.py src/graphapi/__main__.py src/graphapi/app.py src/graphapi/profile_contract.py src/graphapi/theme_store.py`
 
 ## Open Decisions / TODO
 - [ ] Add endpoint-level authn/authz policy for graph type/layout set/link set/iconset/theme mutations.

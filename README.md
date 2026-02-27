@@ -56,6 +56,8 @@ GraphAPI is the canonical runtime service for GraphRapids consumers.
 - `GET /v1/themes/{id}/bundle`
 - `POST /v1/themes`
 - `PUT /v1/themes/{id}`
+- `PUT /v1/themes/{id}/variables/{key}`
+- `DELETE /v1/themes/{id}/variables/{key}`
 - `POST /v1/themes/{id}/publish`
 - `GET /v1/autocomplete/catalog?graph_type_id=...`
 - `GET /v1/icon-sets`
@@ -98,14 +100,46 @@ Each theme bundle carries:
 - `themeId`
 - `themeVersion`
 - `name`
+- `cssBody`
+- `variables`
 - `renderCss`
 - `updatedAt`
 - `checksum`
+
+Theme variable shape:
+
+- `valueType`: `color | float | length | percent | string | custom`
+- `lightValue`: required
+- `darkValue`: required
+- Variable keys are normalized kebab-case without leading `--` in API payloads.
+- Generated CSS declares:
+  - `--light-<key>`
+  - `--dark-<key>`
+  - `--<key>: light-dark(var(--light-<key>), var(--dark-<key>));`
+
+Example variable upsert request:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/themes/default/variables/background-color \
+  -H 'content-type: application/json' \
+  -d '{
+    "valueType": "color",
+    "lightValue": "white",
+    "darkValue": "black"
+  }'
+```
+
+Example variable delete request:
+
+```bash
+curl -sS -X DELETE http://127.0.0.1:8000/v1/themes/default/variables/background-color
+```
 
 ### Lifecycle
 
 - Create graph type/layout set/link set/icon-set/theme: creates draft `version = 1`.
 - Update: replaces draft and increments version.
+- Theme variable upsert/delete also increments draft version.
 - Publish: copies current draft into immutable published versions.
 - Resolve bundle:
   - `stage=published` (default): latest published (or a specific `graph_type_version`)
@@ -170,7 +204,7 @@ Environment variables:
 - `GRAPHAPI_GRAPH_TYPE_STORE_PATH` (optional alias for runtime DB path)
 - `GRAPHAPI_LAYOUT_SET_STORE_PATH` (optional alias for runtime DB path)
 - `GRAPHAPI_LINK_SET_STORE_PATH` (optional alias for runtime DB path)
-- `GRAPHAPI_THEME_STORE_PATH` (default: `~/.cache/graphapi/themes.v1.json`)
+- `GRAPHAPI_THEME_STORE_PATH` (optional sqlite path alias for runtime DB path; if a `.json` path is provided, it is treated as a legacy import source)
 - `GRAPHAPI_ICONSET_STORE_PATH` (optional alias for runtime DB path)
 - `GRAPHAPI_DEFAULT_RENDER_CSS_PATH` (optional override for default theme CSS source)
 

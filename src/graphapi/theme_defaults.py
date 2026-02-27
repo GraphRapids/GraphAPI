@@ -37,6 +37,7 @@ def default_theme_create_request() -> ThemeCreateRequestV1:
         {
             "themeId": "default",
             "name": "Default Render Theme",
-            "renderCss": load_default_render_css(),
+            "cssBody": load_default_render_css(),
+            "variables": {},
         }
     )

@@ -11,6 +11,7 @@ from graphapi.layoutset_defaults import default_layout_set_create_request
 from graphapi.layoutset_store import LayoutSetStore
 from graphapi.linkset_defaults import default_link_set_create_request
 from graphapi.linkset_store import LinkSetStore
+from graphapi.theme_store import ThemeStore
 
 
 def _column_names(conn: sqlite3.Connection, table_name: str) -> set[str]:
@@ -267,3 +268,56 @@ def test_layoutset_payload_schema_migrates_without_data_loss(tmp_path) -> None:
         assert int(draft_entry_count[0]) > 0
         assert published_entry_count is not None
         assert int(published_entry_count[0]) > 0
+
+
+def test_theme_legacy_json_import_migrates_to_sqlite(tmp_path) -> None:
+    legacy_json_path = tmp_path / "themes.v1.json"
+    legacy_json_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "v1",
+                "themes": {
+                    "legacy": {
+                        "themeId": "legacy",
+                        "draft": {
+                            "schemaVersion": "v1",
+                            "themeId": "legacy",
+                            "themeVersion": 2,
+                            "name": "Legacy Draft",
+                            "renderCss": ".node > rect { fill: #334455; }\n",
+                            "updatedAt": "2026-01-01T00:00:00+00:00",
+                            "checksum": "0" * 64,
+                        },
+                        "publishedVersions": [
+                            {
+                                "schemaVersion": "v1",
+                                "themeId": "legacy",
+                                "themeVersion": 1,
+                                "name": "Legacy Published",
+                                "renderCss": ".node > rect { fill: #112233; }\n",
+                                "updatedAt": "2025-01-01T00:00:00+00:00",
+                                "checksum": "1" * 64,
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runtime_db_path = tmp_path / "runtime.v1.sqlite3"
+    store = ThemeStore(runtime_db_path, legacy_json_paths=[legacy_json_path])
+    record = store.get_theme("legacy")
+
+    assert record.draft.themeVersion == 2
+    assert record.draft.cssBody == ".node > rect { fill: #334455; }\n"
+    assert record.draft.variables == {}
+    assert record.publishedVersions[0].themeVersion == 1
+    assert record.publishedVersions[0].cssBody == ".node > rect { fill: #112233; }\n"
+    assert record.draft.renderCss.startswith(":root {\n  color-scheme: light dark;\n}")
+
+    with sqlite3.connect(runtime_db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM themes WHERE theme_id = 'legacy'").fetchone()
+        assert count is not None
+        assert int(count[0]) == 1

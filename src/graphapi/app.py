@@ -59,6 +59,7 @@ from .profile_contract import (
     ThemeListResponseV1,
     ThemeRecordV1,
     ThemeUpdateRequestV1,
+    ThemeVariableUpsertRequestV1,
 )
 from .theme_defaults import default_theme_create_request
 from .theme_store import ThemeStore, ThemeStoreError
@@ -857,6 +858,36 @@ def create_theme_v1(request: ThemeCreateRequestV1) -> ThemeRecordV1:
 def update_theme_v1(id: str, request: ThemeUpdateRequestV1) -> ThemeRecordV1:
     try:
         return theme_store.update_theme(id, request)
+    except ThemeStoreError as exc:
+        raise _theme_http_error(exc) from exc
+
+
+@app.put(
+    "/v1/themes/{id}/variables/{key}",
+    response_model=ThemeRecordV1,
+    tags=["themes"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def upsert_theme_variable_v1(
+    id: str,
+    key: str,
+    request: ThemeVariableUpsertRequestV1,
+) -> ThemeRecordV1:
+    try:
+        return theme_store.upsert_theme_variable(id, key, request)
+    except ThemeStoreError as exc:
+        raise _theme_http_error(exc) from exc
+
+
+@app.delete(
+    "/v1/themes/{id}/variables/{key}",
+    response_model=ThemeRecordV1,
+    tags=["themes"],
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_theme_variable_v1(id: str, key: str) -> ThemeRecordV1:
+    try:
+        return theme_store.delete_theme_variable(id, key)
     except ThemeStoreError as exc:
         raise _theme_http_error(exc) from exc
 

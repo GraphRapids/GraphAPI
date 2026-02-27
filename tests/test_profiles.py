@@ -36,7 +36,7 @@ def client(tmp_path, monkeypatch):
     graph_type_store = GraphTypeStore(runtime_db_path, iconset_store, layout_set_store, link_set_store)
     graph_type_store.ensure_default_graph_type(default_graph_type_create_request())
 
-    theme_store = ThemeStore(tmp_path / "themes.v1.json")
+    theme_store = ThemeStore(runtime_db_path)
     theme_store.ensure_default_theme(default_theme_create_request())
 
     monkeypatch.setattr(graphapi_module, "iconset_store", iconset_store)
@@ -52,7 +52,19 @@ def _new_theme_payload(theme_id: str) -> dict:
     return {
         "themeId": theme_id,
         "name": f"{theme_id} theme",
-        "renderCss": ".node.router > rect { fill: #334455; }\n.edge.directed polyline { stroke: #334455; }\n",
+        "cssBody": ".node.router > rect { fill: var(--node-fill); }\n.edge.directed polyline { stroke: var(--edge-color); }\n",
+        "variables": {
+            "node-fill": {
+                "valueType": "color",
+                "lightValue": "#334455",
+                "darkValue": "#778899",
+            },
+            "edge-color": {
+                "valueType": "color",
+                "lightValue": "#334455",
+                "darkValue": "#aabbcc",
+            },
+        },
     }
 
 
@@ -309,20 +321,41 @@ def test_theme_crud_publish_flow(client: TestClient) -> None:
     body = created.json()
     assert body["themeId"] == "midnight"
     assert body["draft"]["themeVersion"] == 1
+    assert "--node-fill: light-dark(var(--light-node-fill), var(--dark-node-fill));" in body["draft"]["renderCss"]
 
     updated = client.put(
         "/v1/themes/midnight",
         json={
             "name": "midnight updated",
-            "renderCss": ".node.router > rect { fill: #112233; }",
+            "cssBody": ".node.router > rect { fill: var(--node-fill); }",
+            "variables": {
+                "node-fill": {
+                    "valueType": "color",
+                    "lightValue": "#112233",
+                    "darkValue": "#445566",
+                }
+            },
         },
     )
     assert updated.status_code == 200
     assert updated.json()["draft"]["themeVersion"] == 2
 
+    upsert = client.put(
+        "/v1/themes/midnight/variables/background-color",
+        json={"valueType": "color", "lightValue": "white", "darkValue": "black"},
+    )
+    assert upsert.status_code == 200
+    assert upsert.json()["draft"]["themeVersion"] == 3
+    assert upsert.json()["draft"]["variables"]["background-color"]["valueType"] == "color"
+
+    deleted = client.delete("/v1/themes/midnight/variables/node-fill")
+    assert deleted.status_code == 200
+    assert deleted.json()["draft"]["themeVersion"] == 4
+    assert "node-fill" not in deleted.json()["draft"]["variables"]
+
     published = client.post("/v1/themes/midnight/publish")
     assert published.status_code == 200
-    assert published.json()["themeVersion"] == 2
+    assert published.json()["themeVersion"] == 4
 
 
 def test_error_mapping_for_invalid_graph_type_references(client: TestClient) -> None:
@@ -352,6 +385,7 @@ def test_openapi_includes_modular_v1_contract_endpoints(client: TestClient) -> N
     assert "/v1/link-sets" in paths
     assert "/v1/graph-types" in paths
     assert "/v1/graph-types/{id}/runtime" in paths
+    assert "/v1/themes/{id}/variables/{key}" in paths
     assert "/v1/autocomplete/catalog" in paths
     assert "/render/svg" in paths
 
