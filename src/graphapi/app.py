@@ -23,12 +23,14 @@ from .graph_type_contract import (
     GraphTypeUpdateRequestV1,
     LayoutSetBundleV1,
     LayoutSetCreateRequestV1,
+    LayoutSetEntriesResponseV1,
     LayoutSetEntryUpsertRequestV1,
     LayoutSetListResponseV1,
     LayoutSetRecordV1,
     LayoutSetUpdateRequestV1,
     LinkSetBundleV1,
     LinkSetCreateRequestV1,
+    LinkSetEntriesResponseV1,
     LinkSetEntryUpsertRequestV1,
     LinkSetListResponseV1,
     LinkSetRecordV1,
@@ -48,6 +50,7 @@ from .profile_contract import (
     ErrorResponse,
     IconsetBundleV1,
     IconsetCreateRequestV1,
+    IconsetEntriesResponseV1,
     IconsetEntryUpsertRequestV1,
     IconsetListResponseV1,
     IconsetRecordV1,
@@ -60,6 +63,7 @@ from .profile_contract import (
     ThemeRecordV1,
     ThemeUpdateRequestV1,
     ThemeVariableUpsertRequestV1,
+    ThemeVariablesResponseV1,
 )
 from .theme_defaults import default_theme_create_request
 from .theme_store import ThemeStore, ThemeStoreError
@@ -337,6 +341,46 @@ def update_iconset_v1(id: str, request: IconsetUpdateRequestV1) -> IconsetRecord
         raise _iconset_http_error(exc) from exc
 
 
+@app.delete(
+    "/v1/icon-sets/{id}",
+    status_code=204,
+    tags=["icon-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_iconset_v1(id: str) -> Response:
+    try:
+        iconset_store.delete_iconset(id)
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+    return Response(status_code=204)
+
+
+@app.get(
+    "/v1/icon-sets/{id}/entries",
+    response_model=IconsetEntriesResponseV1,
+    tags=["icon-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_iconset_entries_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    icon_set_version: int | None = Query(default=None, ge=1),
+) -> IconsetEntriesResponseV1:
+    try:
+        bundle = iconset_store.get_bundle(id, stage=stage, icon_set_version=icon_set_version)
+    except IconsetStoreError as exc:
+        raise _iconset_http_error(exc) from exc
+    return IconsetEntriesResponseV1.model_validate(
+        {
+            "iconSetId": bundle.iconSetId,
+            "iconSetVersion": bundle.iconSetVersion,
+            "stage": stage,
+            "checksum": bundle.checksum,
+            "entries": bundle.entries,
+        }
+    )
+
+
 @app.put(
     "/v1/icon-sets/{id}/entries/{key}",
     response_model=IconsetRecordV1,
@@ -534,6 +578,46 @@ def update_layout_set_v1(id: str, request: LayoutSetUpdateRequestV1) -> LayoutSe
         raise _layout_set_http_error(exc) from exc
 
 
+@app.delete(
+    "/v1/layout-sets/{id}",
+    status_code=204,
+    tags=["layout-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_layout_set_v1(id: str) -> Response:
+    try:
+        layout_set_store.delete_layout_set(id)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+    return Response(status_code=204)
+
+
+@app.get(
+    "/v1/layout-sets/{id}/entries",
+    response_model=LayoutSetEntriesResponseV1,
+    tags=["layout-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_layout_set_entries_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    layout_set_version: int | None = Query(default=None, ge=1),
+) -> LayoutSetEntriesResponseV1:
+    try:
+        bundle = layout_set_store.get_bundle(id, stage=stage, layout_set_version=layout_set_version)
+    except LayoutSetStoreError as exc:
+        raise _layout_set_http_error(exc) from exc
+    return LayoutSetEntriesResponseV1.model_validate(
+        {
+            "layoutSetId": bundle.layoutSetId,
+            "layoutSetVersion": bundle.layoutSetVersion,
+            "stage": stage,
+            "checksum": bundle.checksum,
+            "entries": bundle.elkSettings,
+        }
+    )
+
+
 @app.put(
     "/v1/layout-sets/{id}/entries/{key}",
     response_model=LayoutSetRecordV1,
@@ -642,6 +726,46 @@ def update_link_set_v1(id: str, request: LinkSetUpdateRequestV1) -> LinkSetRecor
         raise _link_set_http_error(exc) from exc
 
 
+@app.delete(
+    "/v1/link-sets/{id}",
+    status_code=204,
+    tags=["link-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_link_set_v1(id: str) -> Response:
+    try:
+        link_set_store.delete_link_set(id)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+    return Response(status_code=204)
+
+
+@app.get(
+    "/v1/link-sets/{id}/entries",
+    response_model=LinkSetEntriesResponseV1,
+    tags=["link-sets"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_link_set_entries_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    link_set_version: int | None = Query(default=None, ge=1),
+) -> LinkSetEntriesResponseV1:
+    try:
+        bundle = link_set_store.get_bundle(id, stage=stage, link_set_version=link_set_version)
+    except LinkSetStoreError as exc:
+        raise _link_set_http_error(exc) from exc
+    return LinkSetEntriesResponseV1.model_validate(
+        {
+            "linkSetId": bundle.linkSetId,
+            "linkSetVersion": bundle.linkSetVersion,
+            "stage": stage,
+            "checksum": bundle.checksum,
+            "entries": bundle.entries,
+        }
+    )
+
+
 @app.put(
     "/v1/link-sets/{id}/entries/{key}",
     response_model=LinkSetRecordV1,
@@ -744,6 +868,20 @@ def update_graph_type_v1(id: str, request: GraphTypeUpdateRequestV1) -> GraphTyp
         return graph_type_store.update_graph_type(id, request)
     except GraphTypeStoreError as exc:
         raise _graph_type_http_error(exc) from exc
+
+
+@app.delete(
+    "/v1/graph-types/{id}",
+    status_code=204,
+    tags=["graph-types"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_graph_type_v1(id: str) -> Response:
+    try:
+        graph_type_store.delete_graph_type(id)
+    except GraphTypeStoreError as exc:
+        raise _graph_type_http_error(exc) from exc
+    return Response(status_code=204)
 
 
 @app.post(
@@ -860,6 +998,46 @@ def update_theme_v1(id: str, request: ThemeUpdateRequestV1) -> ThemeRecordV1:
         return theme_store.update_theme(id, request)
     except ThemeStoreError as exc:
         raise _theme_http_error(exc) from exc
+
+
+@app.delete(
+    "/v1/themes/{id}",
+    status_code=204,
+    tags=["themes"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def delete_theme_v1(id: str) -> Response:
+    try:
+        theme_store.delete_theme(id)
+    except ThemeStoreError as exc:
+        raise _theme_http_error(exc) from exc
+    return Response(status_code=204)
+
+
+@app.get(
+    "/v1/themes/{id}/variables",
+    response_model=ThemeVariablesResponseV1,
+    tags=["themes"],
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def get_theme_variables_v1(
+    id: str,
+    stage: Literal["draft", "published"] = Query(default="published"),
+    theme_version: int | None = Query(default=None, ge=1),
+) -> ThemeVariablesResponseV1:
+    try:
+        bundle = theme_store.get_bundle(id, stage=stage, theme_version=theme_version)
+    except ThemeStoreError as exc:
+        raise _theme_http_error(exc) from exc
+    return ThemeVariablesResponseV1.model_validate(
+        {
+            "themeId": bundle.themeId,
+            "themeVersion": bundle.themeVersion,
+            "stage": stage,
+            "checksum": bundle.checksum,
+            "variables": bundle.variables,
+        }
+    )
 
 
 @app.put(

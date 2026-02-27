@@ -358,6 +358,102 @@ def test_theme_crud_publish_flow(client: TestClient) -> None:
     assert published.json()["themeVersion"] == 4
 
 
+def test_resource_delete_endpoints_and_entry_variable_reads(client: TestClient) -> None:
+    icon_entries = client.get("/v1/icon-sets/default/entries", params={"stage": "draft"})
+    assert icon_entries.status_code == 200
+    assert icon_entries.json()["entries"]
+
+    layout_entries = client.get("/v1/layout-sets/default/entries", params={"stage": "draft"})
+    assert layout_entries.status_code == 200
+    assert layout_entries.json()["entries"]
+
+    link_entries = client.get("/v1/link-sets/default/entries", params={"stage": "draft"})
+    assert link_entries.status_code == 200
+    assert link_entries.json()["entries"]
+
+    theme_payload = _new_theme_payload("to-delete-theme")
+    assert client.post("/v1/themes", json=theme_payload).status_code == 201
+    theme_variables = client.get("/v1/themes/to-delete-theme/variables", params={"stage": "draft"})
+    assert theme_variables.status_code == 200
+    assert "node-fill" in theme_variables.json()["variables"]
+
+    created_iconset = client.post(
+        "/v1/icon-sets",
+        json={
+            "iconSetId": "to-delete-icons",
+            "name": "To Delete Icons",
+            "entries": {"router": "mdi:router"},
+        },
+    )
+    assert created_iconset.status_code == 201
+    assert client.delete("/v1/icon-sets/to-delete-icons").status_code == 204
+    assert client.get("/v1/icon-sets/to-delete-icons").status_code == 404
+
+    default_layout_bundle = client.get("/v1/layout-sets/default/bundle", params={"stage": "draft"}).json()
+    created_layout = client.post(
+        "/v1/layout-sets",
+        json={
+            "layoutSetId": "to-delete-layout",
+            "name": "To Delete Layout",
+            "elkSettings": default_layout_bundle["elkSettings"],
+        },
+    )
+    assert created_layout.status_code == 201
+    assert client.delete("/v1/layout-sets/to-delete-layout").status_code == 204
+    assert client.get("/v1/layout-sets/to-delete-layout").status_code == 404
+
+    created_link = client.post(
+        "/v1/link-sets",
+        json={
+            "linkSetId": "to-delete-links",
+            "name": "To Delete Links",
+            "entries": {
+                "directed": {
+                    "label": "Directed",
+                    "elkEdgeType": "DIRECTED",
+                    "elkProperties": {},
+                }
+            },
+        },
+    )
+    assert created_link.status_code == 201
+    assert client.delete("/v1/link-sets/to-delete-links").status_code == 204
+    assert client.get("/v1/link-sets/to-delete-links").status_code == 404
+
+    default_icon_bundle = client.get("/v1/icon-sets/default/bundle", params={"stage": "published"}).json()
+    default_link_bundle = client.get("/v1/link-sets/default/bundle", params={"stage": "published"}).json()
+    default_layout_published = client.get("/v1/layout-sets/default/bundle", params={"stage": "published"}).json()
+    created_graph_type = client.post(
+        "/v1/graph-types",
+        json={
+            "graphTypeId": "to-delete-graph-type",
+            "name": "To Delete Graph Type",
+            "layoutSetRef": {
+                "layoutSetId": "default",
+                "layoutSetVersion": default_layout_published["layoutSetVersion"],
+            },
+            "iconSetRefs": [
+                {
+                    "iconSetId": "default",
+                    "iconSetVersion": default_icon_bundle["iconSetVersion"],
+                }
+            ],
+            "linkSetRef": {
+                "linkSetId": "default",
+                "linkSetVersion": default_link_bundle["linkSetVersion"],
+            },
+            "iconConflictPolicy": "reject",
+        },
+    )
+    assert created_graph_type.status_code == 201
+    assert client.delete("/v1/graph-types/to-delete-graph-type").status_code == 204
+    assert client.get("/v1/graph-types/to-delete-graph-type").status_code == 404
+
+    assert client.delete("/v1/themes/to-delete-theme").status_code == 204
+    assert client.get("/v1/themes/to-delete-theme").status_code == 404
+    assert client.get("/v1/themes/to-delete-theme/variables").status_code == 404
+
+
 def test_error_mapping_for_invalid_graph_type_references(client: TestClient) -> None:
     payload = {
         "graphTypeId": "invalid-ref",
@@ -381,10 +477,14 @@ def test_openapi_includes_modular_v1_contract_endpoints(client: TestClient) -> N
 
     assert "/v1/icon-sets" in paths
     assert "/v1/layout-sets" in paths
+    assert "/v1/layout-sets/{id}/entries" in paths
     assert "/v1/layout-sets/{id}/entries/{key}" in paths
     assert "/v1/link-sets" in paths
+    assert "/v1/link-sets/{id}/entries" in paths
     assert "/v1/graph-types" in paths
     assert "/v1/graph-types/{id}/runtime" in paths
+    assert "/v1/icon-sets/{id}/entries" in paths
+    assert "/v1/themes/{id}/variables" in paths
     assert "/v1/themes/{id}/variables/{key}" in paths
     assert "/v1/autocomplete/catalog" in paths
     assert "/render/svg" in paths

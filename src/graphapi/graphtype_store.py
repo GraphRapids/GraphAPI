@@ -215,6 +215,21 @@ class GraphTypeStore:
 
         return self.get_graph_type(graph_type_id)
 
+    def delete_graph_type(self, graph_type_id: str) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                result = conn.execute(
+                    "DELETE FROM graph_types WHERE graph_type_id = ?",
+                    (graph_type_id,),
+                )
+                if int(result.rowcount or 0) < 1:
+                    raise GraphTypeStoreError(
+                        status_code=404,
+                        code="GRAPH_TYPE_NOT_FOUND",
+                        message=f"Graph type '{graph_type_id}' was not found.",
+                    )
+
     def publish_graph_type(self, graph_type_id: str) -> GraphTypeBundleV1:
         with self._lock:
             with self._connect() as conn:

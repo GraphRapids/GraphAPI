@@ -199,6 +199,21 @@ class LayoutSetStore:
 
         return self.get_layout_set(layout_set_id)
 
+    def delete_layout_set(self, layout_set_id: str) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                result = conn.execute(
+                    "DELETE FROM layout_sets WHERE layout_set_id = ?",
+                    (layout_set_id,),
+                )
+                if int(result.rowcount or 0) < 1:
+                    raise LayoutSetStoreError(
+                        status_code=404,
+                        code="LAYOUT_SET_NOT_FOUND",
+                        message=f"Layout set '{layout_set_id}' was not found.",
+                    )
+
     def upsert_layout_set_entry(
         self,
         layout_set_id: str,

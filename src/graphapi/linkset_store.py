@@ -182,6 +182,21 @@ class LinkSetStore:
 
         return self.get_link_set(link_set_id)
 
+    def delete_link_set(self, link_set_id: str) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                result = conn.execute(
+                    "DELETE FROM link_sets WHERE link_set_id = ?",
+                    (link_set_id,),
+                )
+                if int(result.rowcount or 0) < 1:
+                    raise LinkSetStoreError(
+                        status_code=404,
+                        code="LINK_SET_NOT_FOUND",
+                        message=f"Link set '{link_set_id}' was not found.",
+                    )
+
     def upsert_link_entry(
         self,
         link_set_id: str,

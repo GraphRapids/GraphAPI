@@ -174,6 +174,21 @@ class IconsetStore:
 
         return self.get_iconset(icon_set_id)
 
+    def delete_iconset(self, icon_set_id: str) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                result = conn.execute(
+                    "DELETE FROM icon_sets WHERE icon_set_id = ?",
+                    (icon_set_id,),
+                )
+                if int(result.rowcount or 0) < 1:
+                    raise IconsetStoreError(
+                        status_code=404,
+                        code="ICONSET_NOT_FOUND",
+                        message=f"Iconset '{icon_set_id}' was not found.",
+                    )
+
     def upsert_iconset_entry(
         self,
         icon_set_id: str,

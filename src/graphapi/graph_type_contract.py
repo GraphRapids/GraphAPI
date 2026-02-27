@@ -187,6 +187,17 @@ class LayoutSetListResponseV1(BaseModel):
     layoutSets: list[LayoutSetSummaryV1]
 
 
+class LayoutSetEntriesResponseV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal["v1"] = LAYOUT_SET_SCHEMA_VERSION
+    layoutSetId: str
+    layoutSetVersion: int = Field(ge=1)
+    stage: Literal["draft", "published"]
+    checksum: str = Field(min_length=64, max_length=64)
+    entries: dict[str, Any]
+
+
 class LinkTypeDefinitionV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -313,6 +324,17 @@ class LinkSetListResponseV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     linkSets: list[LinkSetSummaryV1]
+
+
+class LinkSetEntriesResponseV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal["v1"] = LINK_SET_SCHEMA_VERSION
+    linkSetId: str
+    linkSetVersion: int = Field(ge=1)
+    stage: Literal["draft", "published"]
+    checksum: str = Field(min_length=64, max_length=64)
+    entries: dict[str, LinkTypeDefinitionV1]
 
 
 class LayoutSetRefV1(BaseModel):
@@ -672,6 +694,7 @@ __all__ = [
     "LayoutSetBundleV1",
     "LayoutSetCreateRequestV1",
     "LayoutSetEntryUpsertRequestV1",
+    "LayoutSetEntriesResponseV1",
     "LayoutSetListResponseV1",
     "LayoutSetRecordV1",
     "LayoutSetRefV1",
@@ -680,6 +703,7 @@ __all__ = [
     "LinkSetBundleV1",
     "LinkSetCreateRequestV1",
     "LinkSetEntryUpsertRequestV1",
+    "LinkSetEntriesResponseV1",
     "LinkSetListResponseV1",
     "LinkSetRecordV1",
     "LinkSetRefV1",

@@ -191,6 +191,21 @@ class ThemeStore:
 
         return self.get_theme(theme_id)
 
+    def delete_theme(self, theme_id: str) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                self._ensure_schema(conn)
+                result = conn.execute(
+                    "DELETE FROM themes WHERE theme_id = ?",
+                    (theme_id,),
+                )
+                if int(result.rowcount or 0) < 1:
+                    raise ThemeStoreError(
+                        status_code=404,
+                        code="THEME_NOT_FOUND",
+                        message=f"Theme '{theme_id}' was not found.",
+                    )
+
     def upsert_theme_variable(
         self,
         theme_id: str,

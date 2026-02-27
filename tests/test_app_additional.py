@@ -35,18 +35,21 @@ def test_default_resources_have_list_get_bundle_routes(client: TestClient) -> No
     assert client.get("/v1/icon-sets/default").status_code == 200
     assert client.get("/v1/icon-sets/default/bundle", params={"stage": "draft"}).status_code == 200
     assert client.get("/v1/icon-sets/default/bundle", params={"stage": "published"}).status_code == 200
+    assert client.get("/v1/icon-sets/default/entries", params={"stage": "draft"}).status_code == 200
 
     layouts = client.get("/v1/layout-sets")
     assert layouts.status_code == 200
     assert any(item["layoutSetId"] == "default" for item in layouts.json()["layoutSets"])
     assert client.get("/v1/layout-sets/default").status_code == 200
     assert client.get("/v1/layout-sets/default/bundle", params={"stage": "draft"}).status_code == 200
+    assert client.get("/v1/layout-sets/default/entries", params={"stage": "draft"}).status_code == 200
 
     links = client.get("/v1/link-sets")
     assert links.status_code == 200
     assert any(item["linkSetId"] == "default" for item in links.json()["linkSets"])
     assert client.get("/v1/link-sets/default").status_code == 200
     assert client.get("/v1/link-sets/default/bundle", params={"stage": "draft"}).status_code == 200
+    assert client.get("/v1/link-sets/default/entries", params={"stage": "draft"}).status_code == 200
 
     graph_types = client.get("/v1/graph-types")
     assert graph_types.status_code == 200
@@ -59,6 +62,7 @@ def test_default_resources_have_list_get_bundle_routes(client: TestClient) -> No
     assert any(item["themeId"] == "default" for item in themes.json()["themes"])
     assert client.get("/v1/themes/default").status_code == 200
     assert client.get("/v1/themes/default/bundle", params={"stage": "draft"}).status_code == 200
+    assert client.get("/v1/themes/default/variables", params={"stage": "draft"}).status_code == 200
 
     validate = client.post("/validate", json={"nodes": ["A"]})
     assert validate.status_code == 200

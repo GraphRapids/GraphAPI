@@ -293,6 +293,17 @@ class IconsetListResponseV1(BaseModel):
     iconSets: list[IconsetSummaryV1]
 
 
+class IconsetEntriesResponseV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
+    iconSetId: str
+    iconSetVersion: int = Field(ge=1)
+    stage: Literal["draft", "published"]
+    checksum: str = Field(min_length=64, max_length=64)
+    entries: dict[str, str]
+
+
 class IconsetSourceRefV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -676,6 +687,17 @@ class ThemeListResponseV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     themes: list[ThemeSummaryV1]
+
+
+class ThemeVariablesResponseV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal["v1"] = PROFILE_SCHEMA_VERSION
+    themeId: str
+    themeVersion: int = Field(ge=1)
+    stage: Literal["draft", "published"]
+    checksum: str = Field(min_length=64, max_length=64)
+    variables: dict[str, ThemeVariableV1]
 
 
 def canonical_iconset_bundle_payload(bundle_data: dict[str, Any]) -> dict[str, Any]:
