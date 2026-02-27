@@ -1,11 +1,11 @@
 # GraphAPI - Project Context
 
 ## Purpose
-GraphAPI is the FastAPI service layer that validates minimal graph input, applies GraphLoom enrichment/layout, returns rendered SVG output via GraphRender, and serves as the canonical runtime graph-type + layout-set + link-set + iconset + render-theme service.
+GraphAPI is the FastAPI service layer that validates minimal graph input, applies GraphLoom enrichment/layout, returns rendered SVG output via GraphRender, and serves as the canonical runtime graph-type + layout-set + link-set + icon-set + render-theme service.
 
 ## Primary Goals
 - Expose a stable HTTP API for validation and rendering.
-- Expose contract-first graph type + layout set + link set + iconset + render theme APIs with explicit schema versioning.
+- Expose contract-first graph type + layout set + link set + icon set + render theme APIs with explicit schema versioning.
 - Expose deterministic graph type runtime resolution (layout + icons + link semantics).
 - Keep request/response behavior predictable with clear error mapping.
 - Enforce runtime safety limits (request size, timeout, CORS).
@@ -66,10 +66,16 @@ Primary endpoints:
 - `POST /v1/icon-sets/{id}/publish`
 - `POST /v1/icon-sets/resolve`
 
+Naming conventions:
+- REST paths use kebab-case resource names (for example `icon-sets`, `layout-sets`, `link-sets`, `graph-types`).
+- JSON fields use camelCase (for example `iconSetId`, `iconSetVersion`, `iconSetResolutionChecksum`).
+- Database tables/columns use snake_case and canonical icon set keys (`icon_sets`, `icon_set_id`, `icon_set_version`).
+- Render response headers use `X-GraphAPI-Icon-Set-*` (`X-GraphAPI-Icon-Set-Resolution-Checksum`, `X-GraphAPI-Icon-Set-Sources`).
+
 Behavior expectations:
 - Always run ELKJS layout before SVG rendering.
 - Graph type/layout set/link set/theme bundles are schema-versioned (`v1`) and checksumed.
-- Graph type bundles include deterministic iconset + runtime resolution checksums.
+- Graph type bundles include deterministic icon-set + runtime resolution checksums.
 - Published graph type/theme versions are immutable.
 - Return clear status codes for validation, timeout, size, and runtime failures.
 - Keep OpenAPI docs accurate and available.

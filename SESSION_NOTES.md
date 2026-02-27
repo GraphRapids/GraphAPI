@@ -14,6 +14,28 @@ Use this file as a running log between work sessions.
 
 ## Current
 
+### 2026-02-27
+- Summary: Enforced canonical icon-set naming and schema consistency for API headers, runtime payloads, and database columns.
+- Changes:
+  - Updated render headers to canonical icon-set names:
+    - `X-GraphAPI-Icon-Set-Resolution-Checksum`
+    - `X-GraphAPI-Icon-Set-Sources`
+  - Enforced canonical icon-set DB schema (`icon_sets`, `icon_set_id`, `icon_set_version`) and removed legacy `iconset_*` table handling.
+  - Added graph-type schema/payload validation reset logic to recover from stale non-canonical stored payload shapes.
+  - Updated tests and docs for canonical icon-set naming.
+- Files touched:
+  - `src/graphapi/app.py`
+  - `src/graphapi/iconset_store.py`
+  - `src/graphapi/graphtype_store.py`
+  - `tests/test_profiles.py`
+  - `PROJECT_CONTEXT.md`
+  - `README.md`
+- Tests run:
+  - `./.venv/bin/python -m pytest -q` (14 passed)
+- Known issues: none.
+- Next steps:
+  - Continue normalizing remaining internal symbol names (`Iconset*`) to `IconSet*` in a dedicated refactor pass.
+
 ### 2026-02-26
 - Summary: Split runtime selectors into layout profiles and render themes.
 - Changes:
