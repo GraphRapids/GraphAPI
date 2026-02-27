@@ -104,7 +104,7 @@ Each theme bundle carries:
 
 ### Lifecycle
 
-- Create graph type/layout set/link set/iconset/theme: creates draft `version = 1`.
+- Create graph type/layout set/link set/icon-set/theme: creates draft `version = 1`.
 - Update: replaces draft and increments version.
 - Publish: copies current draft into immutable published versions.
 - Resolve bundle:
