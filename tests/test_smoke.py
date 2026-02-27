@@ -93,6 +93,52 @@ def test_request_size_limit():
     assert response.status_code == 413
 
 
+def test_request_size_limit_without_content_length(monkeypatch):
+    monkeypatch.setattr(graphapi_module, "MAX_REQUEST_BYTES", 128)
+
+    def chunked_body():
+        yield b'{"oversized":"'
+        yield b"x" * 512
+        yield b'"}'
+
+    response = client.post(
+        "/render/svg",
+        content=chunked_body(),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.request.headers.get("content-length") is None
+    assert response.request.headers.get("transfer-encoding") == "chunked"
+    assert response.status_code == 413
+
+
+def test_cors_preflight_blocks_unknown_origin_by_default():
+    response = client.options(
+        "/render/svg",
+        headers={
+            "origin": "https://evil.example",
+            "access-control-request-method": "POST",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_cors_preflight_allows_local_origin_without_credentials_by_default():
+    response = client.options(
+        "/render/svg",
+        headers={
+            "origin": "http://localhost:9000",
+            "access-control-request-method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:9000"
+    assert response.headers.get("access-control-allow-credentials") != "true"
+
+
 def test_request_timeout(monkeypatch):
     def slow_render(_graph, *, graph_type_bundle=None, theme_bundle=None):
         import time

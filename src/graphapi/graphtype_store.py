@@ -666,41 +666,15 @@ class GraphTypeStore:
     def _ensure_schema(self, conn: sqlite3.Connection) -> None:
         if self._schema_ready:
             return
-        expected_columns = {
-            "graph_types": {
-                "graph_type_id",
-                "name",
-                "draft_version",
-                "draft_updated_at",
-                "draft_checksum",
-                "draft_runtime_checksum",
-                "draft_icon_set_resolution_checksum",
-                "draft_payload",
-            },
-            "graph_type_published_versions": {
-                "graph_type_id",
-                "graph_type_version",
-                "updated_at",
-                "checksum",
-                "runtime_checksum",
-                "icon_set_resolution_checksum",
-                "payload",
-            },
-        }
-        has_schema_mismatch = any(
-            columns and columns != expected_columns[table_name]
-            for table_name, columns in (
-                ("graph_types", self._table_columns(conn, "graph_types")),
-                ("graph_type_published_versions", self._table_columns(conn, "graph_type_published_versions")),
-            )
-        )
-        if has_schema_mismatch:
-            self._drop_schema(conn)
-
         self._create_schema(conn)
+        self._migrate_legacy_schema(conn)
+        self._assert_schema_compatible(conn)
         if self._has_invalid_bundle_payload(conn):
-            self._drop_schema(conn)
-            self._create_schema(conn)
+            raise GraphTypeStoreError(
+                status_code=500,
+                code="GRAPH_TYPE_STORAGE_CORRUPTED",
+                message="Graph type storage payload is unreadable or invalid. Manual migration required.",
+            )
         self._schema_ready = True
 
     @staticmethod
@@ -731,6 +705,145 @@ class GraphTypeStore:
             );
             """
         )
+
+    def _migrate_legacy_schema(self, conn: sqlite3.Connection) -> None:
+        graph_type_columns = self._table_columns(conn, "graph_types")
+        published_columns = self._table_columns(conn, "graph_type_published_versions")
+
+        if graph_type_columns and "draft_runtime_checksum" not in graph_type_columns:
+            conn.execute(
+                """
+                ALTER TABLE graph_types
+                ADD COLUMN draft_runtime_checksum TEXT NOT NULL DEFAULT ''
+                """
+            )
+
+        if graph_type_columns and "draft_icon_set_resolution_checksum" not in graph_type_columns:
+            conn.execute(
+                """
+                ALTER TABLE graph_types
+                ADD COLUMN draft_icon_set_resolution_checksum TEXT NOT NULL DEFAULT ''
+                """
+            )
+
+        if published_columns and "runtime_checksum" not in published_columns:
+            conn.execute(
+                """
+                ALTER TABLE graph_type_published_versions
+                ADD COLUMN runtime_checksum TEXT NOT NULL DEFAULT ''
+                """
+            )
+
+        if published_columns and "icon_set_resolution_checksum" not in published_columns:
+            conn.execute(
+                """
+                ALTER TABLE graph_type_published_versions
+                ADD COLUMN icon_set_resolution_checksum TEXT NOT NULL DEFAULT ''
+                """
+            )
+
+        self._backfill_checksum_columns(conn)
+
+    def _backfill_checksum_columns(self, conn: sqlite3.Connection) -> None:
+        graph_type_rows = conn.execute(
+            """
+            SELECT graph_type_id, draft_payload, draft_runtime_checksum, draft_icon_set_resolution_checksum
+            FROM graph_types
+            """
+        ).fetchall()
+        for row in graph_type_rows:
+            payload = self._parse_payload_json(str(row["draft_payload"]))
+            runtime_checksum = str(payload.get("runtimeChecksum") or row["draft_runtime_checksum"] or "").strip()
+            resolution_checksum = str(
+                payload.get("iconSetResolutionChecksum") or row["draft_icon_set_resolution_checksum"] or ""
+            ).strip()
+            conn.execute(
+                """
+                UPDATE graph_types
+                SET draft_runtime_checksum = ?, draft_icon_set_resolution_checksum = ?
+                WHERE graph_type_id = ?
+                """,
+                (runtime_checksum, resolution_checksum, str(row["graph_type_id"])),
+            )
+
+        published_rows = conn.execute(
+            """
+            SELECT graph_type_id, graph_type_version, payload, runtime_checksum, icon_set_resolution_checksum
+            FROM graph_type_published_versions
+            """
+        ).fetchall()
+        for row in published_rows:
+            payload = self._parse_payload_json(str(row["payload"]))
+            runtime_checksum = str(payload.get("runtimeChecksum") or row["runtime_checksum"] or "").strip()
+            resolution_checksum = str(payload.get("iconSetResolutionChecksum") or row["icon_set_resolution_checksum"] or "").strip()
+            conn.execute(
+                """
+                UPDATE graph_type_published_versions
+                SET runtime_checksum = ?, icon_set_resolution_checksum = ?
+                WHERE graph_type_id = ? AND graph_type_version = ?
+                """,
+                (
+                    runtime_checksum,
+                    resolution_checksum,
+                    str(row["graph_type_id"]),
+                    int(row["graph_type_version"]),
+                ),
+            )
+
+    @staticmethod
+    def _parse_payload_json(raw: str) -> dict:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise GraphTypeStoreError(
+                status_code=500,
+                code="GRAPH_TYPE_STORAGE_CORRUPTED",
+                message="Graph type storage payload is unreadable or invalid. Manual migration required.",
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise GraphTypeStoreError(
+                status_code=500,
+                code="GRAPH_TYPE_STORAGE_CORRUPTED",
+                message="Graph type storage payload is unreadable or invalid. Manual migration required.",
+            )
+        return parsed
+
+    def _assert_schema_compatible(self, conn: sqlite3.Connection) -> None:
+        expected_columns = {
+            "graph_types": {
+                "graph_type_id",
+                "name",
+                "draft_version",
+                "draft_updated_at",
+                "draft_checksum",
+                "draft_runtime_checksum",
+                "draft_icon_set_resolution_checksum",
+                "draft_payload",
+            },
+            "graph_type_published_versions": {
+                "graph_type_id",
+                "graph_type_version",
+                "updated_at",
+                "checksum",
+                "runtime_checksum",
+                "icon_set_resolution_checksum",
+                "payload",
+            },
+        }
+
+        for table_name, required_columns in expected_columns.items():
+            actual_columns = self._table_columns(conn, table_name)
+            missing = required_columns - actual_columns
+            if missing:
+                raise GraphTypeStoreError(
+                    status_code=500,
+                    code="GRAPH_TYPE_SCHEMA_MIGRATION_REQUIRED",
+                    message=(
+                        f"Graph type store schema is incompatible for table '{table_name}'. "
+                        "Manual migration required."
+                    ),
+                    details={"missingColumns": sorted(missing)},
+                )
 
     @staticmethod
     def _drop_schema(conn: sqlite3.Connection) -> None:

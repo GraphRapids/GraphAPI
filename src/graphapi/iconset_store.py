@@ -371,43 +371,12 @@ class IconsetStore:
     def _ensure_schema(self, conn: sqlite3.Connection) -> None:
         if self._schema_ready:
             return
-        expected_columns = {
-            "icon_sets": {
-                "icon_set_id",
-                "name",
-                "draft_version",
-                "draft_updated_at",
-                "draft_checksum",
-            },
-            "icon_set_draft_entries": {"icon_set_id", "type_key", "icon_name"},
-            "icon_set_published_versions": {
-                "icon_set_id",
-                "icon_set_version",
-                "name",
-                "updated_at",
-                "checksum",
-            },
-            "icon_set_published_entries": {
-                "icon_set_id",
-                "icon_set_version",
-                "type_key",
-                "icon_name",
-            },
-        }
+        self._create_schema(conn)
+        self._assert_schema_compatible(conn)
+        self._schema_ready = True
 
-        has_schema_mismatch = any(
-            columns and columns != expected_columns[table_name]
-            for table_name, columns in (
-                ("icon_sets", self._table_columns(conn, "icon_sets")),
-                ("icon_set_draft_entries", self._table_columns(conn, "icon_set_draft_entries")),
-                ("icon_set_published_versions", self._table_columns(conn, "icon_set_published_versions")),
-                ("icon_set_published_entries", self._table_columns(conn, "icon_set_published_entries")),
-            )
-        )
-
-        if has_schema_mismatch:
-            self._drop_schema(conn)
-
+    @staticmethod
+    def _create_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS icon_sets (
@@ -448,7 +417,45 @@ class IconsetStore:
             );
             """
         )
-        self._schema_ready = True
+
+    def _assert_schema_compatible(self, conn: sqlite3.Connection) -> None:
+        expected_columns = {
+            "icon_sets": {
+                "icon_set_id",
+                "name",
+                "draft_version",
+                "draft_updated_at",
+                "draft_checksum",
+            },
+            "icon_set_draft_entries": {"icon_set_id", "type_key", "icon_name"},
+            "icon_set_published_versions": {
+                "icon_set_id",
+                "icon_set_version",
+                "name",
+                "updated_at",
+                "checksum",
+            },
+            "icon_set_published_entries": {
+                "icon_set_id",
+                "icon_set_version",
+                "type_key",
+                "icon_name",
+            },
+        }
+
+        for table_name, required_columns in expected_columns.items():
+            actual_columns = self._table_columns(conn, table_name)
+            missing = required_columns - actual_columns
+            if missing:
+                raise IconsetStoreError(
+                    status_code=500,
+                    code="ICONSET_SCHEMA_MIGRATION_REQUIRED",
+                    message=(
+                        f"Icon set store schema is incompatible for table '{table_name}'. "
+                        "Manual migration required."
+                    ),
+                    details={"missingColumns": sorted(missing)},
+                )
 
     @staticmethod
     def _drop_schema(conn: sqlite3.Connection) -> None:

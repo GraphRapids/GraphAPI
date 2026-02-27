@@ -399,15 +399,14 @@ class LayoutSetStore:
             or (published_columns and "name" not in published_columns)
         )
         if legacy_layout_schema:
-            conn.executescript(
-                """
-                DROP TABLE IF EXISTS layout_set_published_entries;
-                DROP TABLE IF EXISTS layout_set_draft_entries;
-                DROP TABLE IF EXISTS layout_set_published_versions;
-                DROP TABLE IF EXISTS layout_sets;
-                """
-            )
+            self._migrate_legacy_payload_schema(conn)
 
+        self._create_schema(conn)
+        self._assert_schema_compatible(conn)
+        self._schema_ready = True
+
+    @staticmethod
+    def _create_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS layout_sets (
@@ -448,7 +447,179 @@ class LayoutSetStore:
             );
             """
         )
-        self._schema_ready = True
+
+    def _migrate_legacy_payload_schema(self, conn: sqlite3.Connection) -> None:
+        layout_set_columns = self._table_columns(conn, "layout_sets")
+        published_columns = self._table_columns(conn, "layout_set_published_versions")
+        if "draft_payload" not in layout_set_columns or "payload" not in published_columns:
+            raise LayoutSetStoreError(
+                status_code=500,
+                code="LAYOUT_SET_SCHEMA_MIGRATION_REQUIRED",
+                message="Layout set schema is legacy but missing required payload columns for migration.",
+            )
+
+        conn.executescript(
+            """
+            DROP TABLE IF EXISTS layout_sets_legacy_v0;
+            DROP TABLE IF EXISTS layout_set_published_versions_legacy_v0;
+            DROP TABLE IF EXISTS layout_set_draft_entries_legacy_v0;
+            DROP TABLE IF EXISTS layout_set_published_entries_legacy_v0;
+            """
+        )
+
+        if self._table_columns(conn, "layout_set_published_entries"):
+            conn.execute("ALTER TABLE layout_set_published_entries RENAME TO layout_set_published_entries_legacy_v0")
+        if self._table_columns(conn, "layout_set_draft_entries"):
+            conn.execute("ALTER TABLE layout_set_draft_entries RENAME TO layout_set_draft_entries_legacy_v0")
+        if self._table_columns(conn, "layout_set_published_versions"):
+            conn.execute("ALTER TABLE layout_set_published_versions RENAME TO layout_set_published_versions_legacy_v0")
+        if self._table_columns(conn, "layout_sets"):
+            conn.execute("ALTER TABLE layout_sets RENAME TO layout_sets_legacy_v0")
+
+        self._create_schema(conn)
+
+        draft_rows = conn.execute(
+            """
+            SELECT layout_set_id, draft_payload
+            FROM layout_sets_legacy_v0
+            ORDER BY layout_set_id ASC
+            """
+        ).fetchall()
+        for row in draft_rows:
+            bundle = self._legacy_bundle_from_json(str(row["draft_payload"]))
+            conn.execute(
+                """
+                INSERT INTO layout_sets (
+                    layout_set_id,
+                    name,
+                    draft_version,
+                    draft_updated_at,
+                    draft_checksum
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    bundle.layoutSetId,
+                    bundle.name,
+                    bundle.layoutSetVersion,
+                    bundle.updatedAt.isoformat(),
+                    bundle.checksum,
+                ),
+            )
+            conn.executemany(
+                """
+                INSERT INTO layout_set_draft_entries (layout_set_id, setting_key, setting_value_json)
+                VALUES (?, ?, ?)
+                """,
+                [
+                    (bundle.layoutSetId, key, self._encode_json(value))
+                    for key, value in bundle.elkSettings.items()
+                ],
+            )
+
+        published_rows = conn.execute(
+            """
+            SELECT payload
+            FROM layout_set_published_versions_legacy_v0
+            ORDER BY layout_set_id ASC, layout_set_version ASC
+            """
+        ).fetchall()
+        for row in published_rows:
+            bundle = self._legacy_bundle_from_json(str(row["payload"]))
+            conn.execute(
+                """
+                INSERT INTO layout_set_published_versions (
+                    layout_set_id,
+                    layout_set_version,
+                    name,
+                    updated_at,
+                    checksum
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    bundle.layoutSetId,
+                    bundle.layoutSetVersion,
+                    bundle.name,
+                    bundle.updatedAt.isoformat(),
+                    bundle.checksum,
+                ),
+            )
+            conn.executemany(
+                """
+                INSERT INTO layout_set_published_entries (
+                    layout_set_id,
+                    layout_set_version,
+                    setting_key,
+                    setting_value_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (bundle.layoutSetId, bundle.layoutSetVersion, key, self._encode_json(value))
+                    for key, value in bundle.elkSettings.items()
+                ],
+            )
+
+        conn.executescript(
+            """
+            DROP TABLE IF EXISTS layout_set_published_entries_legacy_v0;
+            DROP TABLE IF EXISTS layout_set_draft_entries_legacy_v0;
+            DROP TABLE IF EXISTS layout_set_published_versions_legacy_v0;
+            DROP TABLE IF EXISTS layout_sets_legacy_v0;
+            """
+        )
+
+    @staticmethod
+    def _legacy_bundle_from_json(raw: str) -> LayoutSetBundleV1:
+        try:
+            parsed = json.loads(raw)
+            return LayoutSetBundleV1.model_validate(parsed)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise LayoutSetStoreError(
+                status_code=500,
+                code="LAYOUT_SET_STORAGE_CORRUPTED",
+                message="Layout set storage payload is unreadable or invalid. Manual migration required.",
+            ) from exc
+
+    def _assert_schema_compatible(self, conn: sqlite3.Connection) -> None:
+        expected_columns = {
+            "layout_sets": {
+                "layout_set_id",
+                "name",
+                "draft_version",
+                "draft_updated_at",
+                "draft_checksum",
+            },
+            "layout_set_draft_entries": {
+                "layout_set_id",
+                "setting_key",
+                "setting_value_json",
+            },
+            "layout_set_published_versions": {
+                "layout_set_id",
+                "layout_set_version",
+                "name",
+                "updated_at",
+                "checksum",
+            },
+            "layout_set_published_entries": {
+                "layout_set_id",
+                "layout_set_version",
+                "setting_key",
+                "setting_value_json",
+            },
+        }
+        for table_name, required_columns in expected_columns.items():
+            actual_columns = self._table_columns(conn, table_name)
+            missing = required_columns - actual_columns
+            if missing:
+                raise LayoutSetStoreError(
+                    status_code=500,
+                    code="LAYOUT_SET_SCHEMA_MIGRATION_REQUIRED",
+                    message=(
+                        f"Layout set store schema is incompatible for table '{table_name}'. "
+                        "Manual migration required."
+                    ),
+                    details={"missingColumns": sorted(missing)},
+                )
 
     @staticmethod
     def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:

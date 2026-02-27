@@ -7,7 +7,7 @@ from importlib import resources
 from typing import Literal
 
 import anyio
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from graphloom import ElkSettings, MinimalGraphIn, build_canvas, layout_with_elkjs, sample_settings
@@ -65,6 +65,7 @@ from .theme_store import ThemeStore, ThemeStoreError
 
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("GRAPHAPI_REQUEST_TIMEOUT_SECONDS", "15"))
 MAX_REQUEST_BYTES = int(os.getenv("GRAPHAPI_MAX_REQUEST_BYTES", "1048576"))
+DEFAULT_CORS_ORIGINS = "http://127.0.0.1:9000,http://localhost:9000"
 
 app = FastAPI(
     title="GraphAPI",
@@ -75,11 +76,35 @@ app = FastAPI(
     version="1.0.0",
 )
 
-cors_origins = [origin.strip() for origin in os.getenv("GRAPHAPI_CORS_ORIGINS", "*").split(",") if origin.strip()]
+
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cors_config() -> tuple[list[str], bool]:
+    origins = [
+        origin.strip()
+        for origin in os.getenv("GRAPHAPI_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
+        if origin.strip()
+    ]
+    if not origins:
+        origins = [origin.strip() for origin in DEFAULT_CORS_ORIGINS.split(",") if origin.strip()]
+
+    allow_credentials = _env_bool("GRAPHAPI_CORS_ALLOW_CREDENTIALS", default=False)
+    if allow_credentials and any(origin == "*" for origin in origins):
+        raise RuntimeError("GRAPHAPI_CORS_ALLOW_CREDENTIALS=true requires explicit non-wildcard origins.")
+
+    return origins, allow_credentials
+
+
+cors_origins, cors_allow_credentials = _cors_config()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins or ["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -189,7 +214,7 @@ def render_svg_from_graph(
 
 
 @app.middleware("http")
-async def request_limits_and_timeout(request, call_next):
+async def request_limits_and_timeout(request: Request, call_next):
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
@@ -197,6 +222,35 @@ async def request_limits_and_timeout(request, call_next):
                 return JSONResponse(status_code=413, content={"detail": "Request body too large."})
         except ValueError:
             return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
+
+    original_receive = request._receive
+    body_chunks: list[bytes] = []
+    consumed_bytes = 0
+    while True:
+        message = await original_receive()
+        if message.get("type") != "http.request":
+            continue
+
+        chunk = message.get("body", b"")
+        consumed_bytes += len(chunk)
+        if consumed_bytes > MAX_REQUEST_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+        if chunk:
+            body_chunks.append(chunk)
+        if not message.get("more_body", False):
+            break
+
+    replay_body = b"".join(body_chunks)
+    body_sent = False
+
+    async def _replay_receive() -> dict:
+        nonlocal body_sent
+        if body_sent:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        body_sent = True
+        return {"type": "http.request", "body": replay_body, "more_body": False}
+
+    request._receive = _replay_receive
 
     try:
         with anyio.fail_after(REQUEST_TIMEOUT_SECONDS):
