@@ -29,7 +29,7 @@ def load_default_render_css() -> str:
         except OSError:
             continue
 
-    return default_theme_css("default")
+    return default_theme_css()
 
 
 def default_theme_create_request() -> ThemeCreateRequestV1:

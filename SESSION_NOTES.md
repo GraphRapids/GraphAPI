@@ -14,6 +14,20 @@ Use this file as a running log between work sessions.
 
 ## Current
 
+### 2026-02-27 (hotfix)
+- Summary: Fixed GraphAPI test collection failure caused by outdated `default_theme_css` call signature.
+- Changes:
+  - Updated theme default fallback call to `default_theme_css()` (no positional arguments).
+  - Restored successful app import and test collection.
+- Files touched:
+  - `src/graphapi/theme_defaults.py`
+  - `SESSION_NOTES.md`
+- Tests run:
+  - `./.venv/bin/python -m pytest -q` (14 passed)
+- Known issues: none.
+- Next steps:
+  - Keep GraphRender default theme helper signature aligned when upgrading dependency versions.
+
 ### 2026-02-27
 - Summary: Enforced canonical icon-set naming and schema consistency for API headers, runtime payloads, and database columns.
 - Changes:
