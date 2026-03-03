@@ -315,7 +315,7 @@ def test_theme_legacy_json_import_migrates_to_sqlite(tmp_path) -> None:
     assert record.draft.variables == {}
     assert record.publishedVersions[0].themeVersion == 1
     assert record.publishedVersions[0].cssBody == ".node > rect { fill: #112233; }\n"
-    assert record.draft.renderCss.startswith(":root {\n  color-scheme: light dark;\n}")
+    assert record.draft.renderCss.startswith(":root {\n}\n")
 
     with sqlite3.connect(runtime_db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM themes WHERE theme_id = 'legacy'").fetchone()

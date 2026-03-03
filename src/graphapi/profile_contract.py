@@ -135,14 +135,26 @@ def _validate_theme_variable_value(value_type: ThemeVariableValueType, raw_value
     return value
 
 
-def compile_theme_render_css(css_body: str, variables: dict[str, dict[str, str]]) -> str:
-    lines: list[str] = [":root {", "  color-scheme: light dark;"]
+def compile_theme_render_css(css_body: str, variables: dict[str, dict[str, str | None]]) -> str:
+    lines: list[str] = [":root {"]
+    has_color_variables = any(
+        str(variable.get("valueType", "")) == "color"
+        for variable in variables.values()
+    )
+    if has_color_variables:
+        lines.append("  color-scheme: light dark;")
+
     for key in sorted(variables.keys()):
-        lines.append(f"  --light-{key}: {variables[key]['lightValue']};")
-        lines.append(f"  --dark-{key}: {variables[key]['darkValue']};")
-        lines.append(
-            f"  --{key}: light-dark(var(--light-{key}), var(--dark-{key}));"
-        )
+        variable = variables[key]
+        if str(variable["valueType"]) == "color":
+            lines.append(f"  --light-{key}: {variable['lightValue']};")
+            lines.append(f"  --dark-{key}: {variable['darkValue']};")
+            lines.append(
+                f"  --{key}: light-dark(var(--light-{key}), var(--dark-{key}));"
+            )
+            continue
+
+        lines.append(f"  --{key}: {variable['value']};")
     lines.append("}")
     managed_block = "\n".join(lines)
     body = str(css_body)
@@ -556,24 +568,39 @@ class ThemeVariableV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     valueType: ThemeVariableValueType
-    lightValue: str = Field(min_length=1, max_length=MAX_THEME_VARIABLE_VALUE_LENGTH)
-    darkValue: str = Field(min_length=1, max_length=MAX_THEME_VARIABLE_VALUE_LENGTH)
+    value: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_THEME_VARIABLE_VALUE_LENGTH,
+    )
+    lightValue: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_THEME_VARIABLE_VALUE_LENGTH,
+    )
+    darkValue: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_THEME_VARIABLE_VALUE_LENGTH,
+    )
 
-    @field_validator("lightValue")
-    @classmethod
-    def validate_light_value(cls, value: str, info) -> str:
-        value_type = info.data.get("valueType")
-        if value_type is None:
-            return str(value).strip()
-        return _validate_theme_variable_value(value_type, value)
+    @model_validator(mode="after")
+    def validate_by_type(self) -> "ThemeVariableV1":
+        if self.valueType == "color":
+            if self.lightValue is None or self.darkValue is None:
+                raise ValueError("color theme variables must define both lightValue and darkValue.")
+            if self.value is not None:
+                raise ValueError("color theme variables must not define value.")
+            self.lightValue = _validate_theme_variable_value(self.valueType, self.lightValue)
+            self.darkValue = _validate_theme_variable_value(self.valueType, self.darkValue)
+            return self
 
-    @field_validator("darkValue")
-    @classmethod
-    def validate_dark_value(cls, value: str, info) -> str:
-        value_type = info.data.get("valueType")
-        if value_type is None:
-            return str(value).strip()
-        return _validate_theme_variable_value(value_type, value)
+        if self.value is None:
+            raise ValueError(f"{self.valueType} theme variables must define value.")
+        if self.lightValue is not None or self.darkValue is not None:
+            raise ValueError(f"{self.valueType} theme variables must not define lightValue/darkValue.")
+        self.value = _validate_theme_variable_value(self.valueType, self.value)
+        return self
 
 
 class ThemeVariableUpsertRequestV1(ThemeVariableV1):
@@ -626,8 +653,10 @@ class ThemeEditableFieldsV1(BaseModel):
     @model_validator(mode="after")
     def validate_css_body_conflicts(self):
         css_text = self.cssBody.lower()
-        for key in self.variables.keys():
-            managed = [f"--{key}", f"--light-{key}", f"--dark-{key}"]
+        for key, variable in self.variables.items():
+            managed = [f"--{key}"]
+            if variable.valueType == "color":
+                managed.extend([f"--light-{key}", f"--dark-{key}"])
             for managed_name in managed:
                 if re.search(rf"{re.escape(managed_name)}\s*:", css_text):
                     raise ValueError(
@@ -791,20 +820,23 @@ def compute_autocomplete_checksum(bundle: ProfileBundleV1) -> str:
 
 
 def canonical_theme_bundle_payload(bundle_data: dict[str, Any]) -> dict[str, Any]:
+    variables_payload: dict[str, dict[str, str]] = {}
+    for key, value in sorted(bundle_data["variables"].items(), key=lambda item: item[0]):
+        item = {"valueType": value["valueType"]}
+        if value["valueType"] == "color":
+            item["lightValue"] = value["lightValue"]
+            item["darkValue"] = value["darkValue"]
+        else:
+            item["value"] = value["value"]
+        variables_payload[key] = item
+
     return {
         "schemaVersion": PROFILE_SCHEMA_VERSION,
         "themeId": bundle_data["themeId"],
         "themeVersion": bundle_data["themeVersion"],
         "name": bundle_data["name"],
         "cssBody": bundle_data["cssBody"],
-        "variables": {
-            key: {
-                "valueType": value["valueType"],
-                "lightValue": value["lightValue"],
-                "darkValue": value["darkValue"],
-            }
-            for key, value in sorted(bundle_data["variables"].items(), key=lambda item: item[0])
-        },
+        "variables": variables_payload,
         "renderCss": bundle_data["renderCss"],
     }
 

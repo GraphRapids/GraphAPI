@@ -52,7 +52,10 @@ def _new_theme_payload(theme_id: str) -> dict:
     return {
         "themeId": theme_id,
         "name": f"{theme_id} theme",
-        "cssBody": ".node.router > rect { fill: var(--node-fill); }\n.edge.directed polyline { stroke: var(--edge-color); }\n",
+        "cssBody": (
+            ".node.router > rect { fill: var(--node-fill); }\n"
+            ".edge.directed polyline { stroke: var(--edge-color); stroke-width: var(--edge-width); }\n"
+        ),
         "variables": {
             "node-fill": {
                 "valueType": "color",
@@ -63,6 +66,10 @@ def _new_theme_payload(theme_id: str) -> dict:
                 "valueType": "color",
                 "lightValue": "#334455",
                 "darkValue": "#aabbcc",
+            },
+            "edge-width": {
+                "valueType": "length",
+                "value": "2px",
             },
         },
     }
@@ -322,6 +329,8 @@ def test_theme_crud_publish_flow(client: TestClient) -> None:
     assert body["themeId"] == "midnight"
     assert body["draft"]["themeVersion"] == 1
     assert "--node-fill: light-dark(var(--light-node-fill), var(--dark-node-fill));" in body["draft"]["renderCss"]
+    assert "--edge-width: 2px;" in body["draft"]["renderCss"]
+    assert "--light-edge-width" not in body["draft"]["renderCss"]
 
     updated = client.put(
         "/v1/themes/midnight",
@@ -333,6 +342,10 @@ def test_theme_crud_publish_flow(client: TestClient) -> None:
                     "valueType": "color",
                     "lightValue": "#112233",
                     "darkValue": "#445566",
+                },
+                "node-radius": {
+                    "valueType": "length",
+                    "value": "6px",
                 }
             },
         },
@@ -347,6 +360,7 @@ def test_theme_crud_publish_flow(client: TestClient) -> None:
     assert upsert.status_code == 200
     assert upsert.json()["draft"]["themeVersion"] == 3
     assert upsert.json()["draft"]["variables"]["background-color"]["valueType"] == "color"
+    assert upsert.json()["draft"]["variables"]["node-radius"]["value"] == "6px"
 
     deleted = client.delete("/v1/themes/midnight/variables/node-fill")
     assert deleted.status_code == 200

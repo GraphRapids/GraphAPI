@@ -405,6 +405,8 @@ class ThemeStore:
             editable.cssBody,
             {
                 key: {
+                    "valueType": value.valueType,
+                    "value": value.value,
                     "lightValue": value.lightValue,
                     "darkValue": value.darkValue,
                 }
@@ -457,8 +459,9 @@ class ThemeStore:
                 theme_id TEXT NOT NULL,
                 variable_key TEXT NOT NULL,
                 value_type TEXT NOT NULL,
-                light_value TEXT NOT NULL,
-                dark_value TEXT NOT NULL,
+                value TEXT,
+                light_value TEXT,
+                dark_value TEXT,
                 PRIMARY KEY (theme_id, variable_key),
                 FOREIGN KEY (theme_id) REFERENCES themes(theme_id) ON DELETE CASCADE
             );
@@ -480,8 +483,9 @@ class ThemeStore:
                 theme_version INTEGER NOT NULL,
                 variable_key TEXT NOT NULL,
                 value_type TEXT NOT NULL,
-                light_value TEXT NOT NULL,
-                dark_value TEXT NOT NULL,
+                value TEXT,
+                light_value TEXT,
+                dark_value TEXT,
                 PRIMARY KEY (theme_id, theme_version, variable_key),
                 FOREIGN KEY (theme_id, theme_version)
                     REFERENCES theme_published_versions(theme_id, theme_version)
@@ -505,6 +509,7 @@ class ThemeStore:
                 "theme_id",
                 "variable_key",
                 "value_type",
+                "value",
                 "light_value",
                 "dark_value",
             },
@@ -522,6 +527,7 @@ class ThemeStore:
                 "theme_version",
                 "variable_key",
                 "value_type",
+                "value",
                 "light_value",
                 "dark_value",
             },
@@ -696,15 +702,17 @@ class ThemeStore:
                 theme_id,
                 variable_key,
                 value_type,
+                value,
                 light_value,
                 dark_value
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     bundle.themeId,
                     key,
                     value.valueType,
+                    value.value,
                     value.lightValue,
                     value.darkValue,
                 )
@@ -744,9 +752,10 @@ class ThemeStore:
                 theme_version,
                 variable_key,
                 value_type,
+                value,
                 light_value,
                 dark_value
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -754,6 +763,7 @@ class ThemeStore:
                     bundle.themeVersion,
                     key,
                     value.valueType,
+                    value.value,
                     value.lightValue,
                     value.darkValue,
                 )
@@ -802,7 +812,7 @@ class ThemeStore:
     def _load_draft_variables(self, conn: sqlite3.Connection, theme_id: str) -> dict[str, ThemeVariableV1]:
         rows = conn.execute(
             """
-            SELECT variable_key, value_type, light_value, dark_value
+            SELECT variable_key, value_type, value, light_value, dark_value
             FROM theme_draft_variables
             WHERE theme_id = ?
             ORDER BY variable_key ASC
@@ -813,8 +823,9 @@ class ThemeStore:
             str(row["variable_key"]): ThemeVariableV1.model_validate(
                 {
                     "valueType": str(row["value_type"]),
-                    "lightValue": str(row["light_value"]),
-                    "darkValue": str(row["dark_value"]),
+                    "value": row["value"],
+                    "lightValue": row["light_value"],
+                    "darkValue": row["dark_value"],
                 }
             )
             for row in rows
@@ -865,7 +876,7 @@ class ThemeStore:
     ) -> dict[str, ThemeVariableV1]:
         rows = conn.execute(
             """
-            SELECT variable_key, value_type, light_value, dark_value
+            SELECT variable_key, value_type, value, light_value, dark_value
             FROM theme_published_variables
             WHERE theme_id = ? AND theme_version = ?
             ORDER BY variable_key ASC
@@ -876,8 +887,9 @@ class ThemeStore:
             str(row["variable_key"]): ThemeVariableV1.model_validate(
                 {
                     "valueType": str(row["value_type"]),
-                    "lightValue": str(row["light_value"]),
-                    "darkValue": str(row["dark_value"]),
+                    "value": row["value"],
+                    "lightValue": row["light_value"],
+                    "darkValue": row["dark_value"],
                 }
             )
             for row in rows

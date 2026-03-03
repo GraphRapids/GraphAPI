@@ -10,12 +10,28 @@ from graphapi.profile_contract import (
 )
 
 
-def test_compile_theme_render_css_emits_three_lines_per_variable_in_sorted_order() -> None:
+def test_compile_theme_render_css_emits_type_specific_lines_per_variable_in_sorted_order() -> None:
     css = compile_theme_render_css(
         ".node > rect { fill: var(--background-color); }\n",
         {
-            "z-index-color": {"lightValue": "white", "darkValue": "black"},
-            "background-color": {"lightValue": "#fff", "darkValue": "#000"},
+            "z-index-color": {
+                "valueType": "color",
+                "lightValue": "white",
+                "darkValue": "black",
+                "value": None,
+            },
+            "node-gap": {
+                "valueType": "length",
+                "value": "12px",
+                "lightValue": None,
+                "darkValue": None,
+            },
+            "background-color": {
+                "valueType": "color",
+                "lightValue": "#fff",
+                "darkValue": "#000",
+                "value": None,
+            },
         },
     )
     expected = """\
@@ -24,12 +40,35 @@ def test_compile_theme_render_css_emits_three_lines_per_variable_in_sorted_order
   --light-background-color: #fff;
   --dark-background-color: #000;
   --background-color: light-dark(var(--light-background-color), var(--dark-background-color));
+  --node-gap: 12px;
   --light-z-index-color: white;
   --dark-z-index-color: black;
   --z-index-color: light-dark(var(--light-z-index-color), var(--dark-z-index-color));
 }
 
 .node > rect { fill: var(--background-color); }
+"""
+    assert css == expected
+
+
+def test_compile_theme_render_css_without_color_variables_emits_single_value_lines() -> None:
+    css = compile_theme_render_css(
+        ".edge { stroke-width: var(--edge-width); }\n",
+        {
+            "edge-width": {
+                "valueType": "length",
+                "value": "2px",
+                "lightValue": None,
+                "darkValue": None,
+            }
+        },
+    )
+    expected = """\
+:root {
+  --edge-width: 2px;
+}
+
+.edge { stroke-width: var(--edge-width); }
 """
     assert css == expected
 
@@ -73,7 +112,27 @@ def test_theme_float_values_must_be_parseable_numbers() -> None:
         ThemeVariableV1.model_validate(
             {
                 "valueType": "float",
-                "lightValue": "not-a-number",
-                "darkValue": "2.3",
+                "value": "not-a-number",
+            }
+        )
+
+
+def test_theme_color_values_require_light_and_dark_value_pair() -> None:
+    with pytest.raises(ValidationError, match="must define both lightValue and darkValue"):
+        ThemeVariableV1.model_validate(
+            {
+                "valueType": "color",
+                "lightValue": "white",
+            }
+        )
+
+
+def test_theme_non_color_values_require_single_value() -> None:
+    with pytest.raises(ValidationError, match="must define value"):
+        ThemeVariableV1.model_validate(
+            {
+                "valueType": "length",
+                "lightValue": "1px",
+                "darkValue": "2px",
             }
         )
