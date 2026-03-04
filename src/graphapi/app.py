@@ -72,7 +72,14 @@ from .theme_store import ThemeStore, ThemeStoreError
 
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("GRAPHAPI_REQUEST_TIMEOUT_SECONDS", "15"))
 MAX_REQUEST_BYTES = int(os.getenv("GRAPHAPI_MAX_REQUEST_BYTES", "1048576"))
-DEFAULT_CORS_ORIGINS = "http://127.0.0.1:9000,http://localhost:9000"
+DEFAULT_CORS_ORIGINS = ",".join(
+    [
+        "http://127.0.0.1:9000",
+        "http://localhost:9000",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ]
+)
 
 app = FastAPI(
     title="GraphAPI",

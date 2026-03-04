@@ -139,6 +139,20 @@ def test_cors_preflight_allows_local_origin_without_credentials_by_default():
     assert response.headers.get("access-control-allow-credentials") != "true"
 
 
+def test_cors_preflight_allows_vite_origin_without_credentials_by_default():
+    response = client.options(
+        "/render/svg",
+        headers={
+            "origin": "http://localhost:5173",
+            "access-control-request-method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers.get("access-control-allow-credentials") != "true"
+
+
 def test_request_timeout(monkeypatch):
     def slow_render(_graph, *, graph_type_bundle=None, theme_bundle=None):
         import time

@@ -231,7 +231,7 @@ Environment variables:
 - `GRAPHAPI_HOST` (default: `0.0.0.0`)
 - `GRAPHAPI_PORT` (default: `8000`)
 - `PORT` (fallback if `GRAPHAPI_PORT` is unset)
-- `GRAPHAPI_CORS_ORIGINS` (default: `http://127.0.0.1:9000,http://localhost:9000`, comma-separated list)
+- `GRAPHAPI_CORS_ORIGINS` (default: `http://127.0.0.1:9000,http://localhost:9000,http://127.0.0.1:5173,http://localhost:5173`, comma-separated list)
 - `GRAPHAPI_CORS_ALLOW_CREDENTIALS` (default: `false`; requires explicit non-`*` origins when enabled)
 - `GRAPHAPI_REQUEST_TIMEOUT_SECONDS` (default: `15`)
 - `GRAPHAPI_MAX_REQUEST_BYTES` (default: `1048576`)

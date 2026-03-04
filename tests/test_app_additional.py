@@ -15,6 +15,12 @@ def test_env_bool_and_cors_config_guard(monkeypatch) -> None:
     monkeypatch.setenv("GRAPHAPI_CORS_ALLOW_CREDENTIALS", "yes")
     assert graphapi_module._env_bool("GRAPHAPI_CORS_ALLOW_CREDENTIALS", default=False) is True
 
+    monkeypatch.delenv("GRAPHAPI_CORS_ORIGINS", raising=False)
+    default_origins, default_allow_credentials = graphapi_module._cors_config()
+    assert "http://127.0.0.1:5173" in default_origins
+    assert "http://localhost:5173" in default_origins
+    assert default_allow_credentials is True
+
     monkeypatch.setenv("GRAPHAPI_CORS_ORIGINS", "")
     origins, allow_credentials = graphapi_module._cors_config()
     assert origins
