@@ -419,6 +419,7 @@ class LayoutSetStore:
 
         self._create_schema(conn)
         self._assert_schema_compatible(conn)
+        self._backfill_checksum_columns(conn)
         self._schema_ready = True
 
     @staticmethod
@@ -637,6 +638,73 @@ class LayoutSetStore:
                     details={"missingColumns": sorted(missing)},
                 )
 
+    def _backfill_checksum_columns(self, conn: sqlite3.Connection) -> None:
+        draft_rows = conn.execute(
+            """
+            SELECT layout_set_id, name, draft_version, draft_updated_at, draft_checksum
+            FROM layout_sets
+            """
+        ).fetchall()
+        for row in draft_rows:
+            layout_set_id = str(row["layout_set_id"])
+            updated_at = self._parse_stored_datetime(str(row["draft_updated_at"]))
+            entries = self._load_draft_entries(conn, layout_set_id)
+            expected_checksum = self._compute_checksum_from_parts(
+                layout_set_id=layout_set_id,
+                layout_set_version=int(row["draft_version"]),
+                name=str(row["name"]),
+                updated_at=updated_at,
+                entries=entries,
+            )
+            if expected_checksum != str(row["draft_checksum"]):
+                conn.execute(
+                    """
+                    UPDATE layout_sets
+                    SET draft_checksum = ?
+                    WHERE layout_set_id = ?
+                    """,
+                    (expected_checksum, layout_set_id),
+                )
+
+        published_rows = conn.execute(
+            """
+            SELECT layout_set_id, layout_set_version, name, updated_at, checksum
+            FROM layout_set_published_versions
+            """
+        ).fetchall()
+        for row in published_rows:
+            layout_set_id = str(row["layout_set_id"])
+            layout_set_version = int(row["layout_set_version"])
+            updated_at = self._parse_stored_datetime(str(row["updated_at"]))
+            entries = self._load_published_entries(conn, layout_set_id, layout_set_version)
+            expected_checksum = self._compute_checksum_from_parts(
+                layout_set_id=layout_set_id,
+                layout_set_version=layout_set_version,
+                name=str(row["name"]),
+                updated_at=updated_at,
+                entries=entries,
+            )
+            if expected_checksum != str(row["checksum"]):
+                conn.execute(
+                    """
+                    UPDATE layout_set_published_versions
+                    SET checksum = ?
+                    WHERE layout_set_id = ? AND layout_set_version = ?
+                    """,
+                    (expected_checksum, layout_set_id, layout_set_version),
+                )
+
+    @staticmethod
+    def _parse_stored_datetime(raw: str) -> datetime:
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise LayoutSetStoreError(
+                status_code=500,
+                code="LAYOUT_SET_STORAGE_CORRUPTED",
+                message="Layout set storage payload is unreadable or invalid. Manual migration required.",
+            ) from exc
+
     @staticmethod
     def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -723,6 +791,20 @@ class LayoutSetStore:
         checksum: str,
         entries: dict[str, Any],
     ) -> LayoutSetBundleV1:
+        expected_checksum = self._compute_checksum_from_parts(
+            layout_set_id=layout_set_id,
+            layout_set_version=layout_set_version,
+            name=name,
+            updated_at=updated_at,
+            entries=entries,
+        )
+        if checksum != expected_checksum:
+            raise LayoutSetStoreError(
+                status_code=500,
+                code="LAYOUT_SET_STORAGE_CORRUPTED",
+                message="Layout set checksum does not match stored entries.",
+            )
+
         settings = self._validate_elk_settings(entries)
         payload = {
             "schemaVersion": "v1",
@@ -732,15 +814,28 @@ class LayoutSetStore:
             "elkSettings": settings,
             "updatedAt": updated_at,
         }
-        expected_checksum = compute_layout_set_checksum(payload)
-        if checksum != expected_checksum:
-            raise LayoutSetStoreError(
-                status_code=500,
-                code="LAYOUT_SET_STORAGE_CORRUPTED",
-                message="Layout set checksum does not match stored entries.",
-            )
         payload["checksum"] = checksum
         return LayoutSetBundleV1.model_validate(payload)
+
+    def _compute_checksum_from_parts(
+        self,
+        *,
+        layout_set_id: str,
+        layout_set_version: int,
+        name: str,
+        updated_at: datetime,
+        entries: dict[str, Any],
+    ) -> str:
+        settings = self._validate_elk_settings(entries)
+        payload = {
+            "schemaVersion": "v1",
+            "layoutSetId": layout_set_id,
+            "layoutSetVersion": layout_set_version,
+            "name": name,
+            "elkSettings": settings,
+            "updatedAt": updated_at,
+        }
+        return compute_layout_set_checksum(payload)
 
     def _insert_layout_set(self, conn: sqlite3.Connection, bundle: LayoutSetBundleV1, *, publish: bool) -> None:
         conn.execute(

@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import Literal
+from typing import Any, Literal
 
 from graphloom import ElkSettings
 from pydantic import ValidationError
@@ -698,6 +698,7 @@ class GraphTypeStore:
                 code="GRAPH_TYPE_STORAGE_CORRUPTED",
                 message="Graph type storage payload is unreadable or invalid. Manual migration required.",
             )
+        self._backfill_reference_checksums(conn)
         self._schema_ready = True
 
     @staticmethod
@@ -812,6 +813,159 @@ class GraphTypeStore:
                     int(row["graph_type_version"]),
                 ),
             )
+
+    def _backfill_reference_checksums(self, conn: sqlite3.Connection) -> None:
+        draft_rows = conn.execute(
+            """
+            SELECT graph_type_id, draft_payload
+            FROM graph_types
+            """
+        ).fetchall()
+        for row in draft_rows:
+            graph_type_id = str(row["graph_type_id"])
+            payload = self._parse_payload_json(str(row["draft_payload"]))
+            refreshed_payload, changed = self._refresh_payload_checksums(payload)
+            if not changed:
+                continue
+
+            conn.execute(
+                """
+                UPDATE graph_types
+                SET
+                    draft_checksum = ?,
+                    draft_runtime_checksum = ?,
+                    draft_icon_set_resolution_checksum = ?,
+                    draft_payload = ?
+                WHERE graph_type_id = ?
+                """,
+                (
+                    str(refreshed_payload["checksum"]),
+                    str(refreshed_payload["runtimeChecksum"]),
+                    str(refreshed_payload["iconSetResolutionChecksum"]),
+                    self._payload_to_json(refreshed_payload),
+                    graph_type_id,
+                ),
+            )
+
+        published_rows = conn.execute(
+            """
+            SELECT graph_type_id, graph_type_version, payload
+            FROM graph_type_published_versions
+            """
+        ).fetchall()
+        for row in published_rows:
+            graph_type_id = str(row["graph_type_id"])
+            graph_type_version = int(row["graph_type_version"])
+            payload = self._parse_payload_json(str(row["payload"]))
+            refreshed_payload, changed = self._refresh_payload_checksums(payload)
+            if not changed:
+                continue
+
+            conn.execute(
+                """
+                UPDATE graph_type_published_versions
+                SET
+                    checksum = ?,
+                    runtime_checksum = ?,
+                    icon_set_resolution_checksum = ?,
+                    payload = ?
+                WHERE graph_type_id = ? AND graph_type_version = ?
+                """,
+                (
+                    str(refreshed_payload["checksum"]),
+                    str(refreshed_payload["runtimeChecksum"]),
+                    str(refreshed_payload["iconSetResolutionChecksum"]),
+                    self._payload_to_json(refreshed_payload),
+                    graph_type_id,
+                    graph_type_version,
+                ),
+            )
+
+    def _refresh_payload_checksums(self, payload_data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        original_bundle = GraphTypeBundleV1.model_validate(payload_data)
+        payload = original_bundle.model_dump(mode="json")
+
+        payload["layoutSetRef"]["checksum"] = self._resolve_layout_set_checksum(
+            layout_set_id=original_bundle.layoutSetRef.layoutSetId,
+            layout_set_version=original_bundle.layoutSetRef.layoutSetVersion,
+            fallback=payload["layoutSetRef"]["checksum"],
+        )
+        payload["linkSetRef"]["checksum"] = self._resolve_link_set_checksum(
+            link_set_id=original_bundle.linkSetRef.linkSetId,
+            link_set_version=original_bundle.linkSetRef.linkSetVersion,
+            fallback=payload["linkSetRef"]["checksum"],
+        )
+
+        for index, ref in enumerate(original_bundle.iconSetRefs):
+            payload["iconSetRefs"][index]["checksum"] = self._resolve_icon_set_checksum(
+                icon_set_id=ref.iconSetId,
+                icon_set_version=ref.iconSetVersion,
+                fallback=payload["iconSetRefs"][index]["checksum"],
+            )
+
+        payload["iconSetResolutionChecksum"] = compute_icon_set_resolution_checksum(
+            conflict_policy=payload["iconConflictPolicy"],
+            sources=payload["iconSetRefs"],
+            resolved_entries=payload["typeIconMap"],
+        )
+        payload["runtimeChecksum"] = compute_graph_type_runtime_checksum(payload)
+        payload["checksum"] = compute_graph_type_checksum(payload)
+
+        refreshed_bundle = GraphTypeBundleV1.model_validate(payload)
+        original_payload = original_bundle.model_dump(mode="json")
+        refreshed_payload = refreshed_bundle.model_dump(mode="json")
+        return refreshed_payload, refreshed_payload != original_payload
+
+    def _resolve_layout_set_checksum(
+        self,
+        *,
+        layout_set_id: str,
+        layout_set_version: int,
+        fallback: str,
+    ) -> str:
+        try:
+            bundle = self._layout_set_store.get_bundle(
+                layout_set_id,
+                stage="published",
+                layout_set_version=layout_set_version,
+            )
+            return bundle.checksum
+        except LayoutSetStoreError:
+            return fallback
+
+    def _resolve_link_set_checksum(
+        self,
+        *,
+        link_set_id: str,
+        link_set_version: int,
+        fallback: str,
+    ) -> str:
+        try:
+            bundle = self._link_set_store.get_bundle(
+                link_set_id,
+                stage="published",
+                link_set_version=link_set_version,
+            )
+            return bundle.checksum
+        except LinkSetStoreError:
+            return fallback
+
+    def _resolve_icon_set_checksum(
+        self,
+        *,
+        icon_set_id: str,
+        icon_set_version: int,
+        fallback: str,
+    ) -> str:
+        try:
+            bundle = self._iconset_store.get_bundle(
+                icon_set_id,
+                stage="published",
+                icon_set_version=icon_set_version,
+            )
+            return bundle.checksum
+        except IconsetStoreError:
+            return fallback
 
     @staticmethod
     def _parse_payload_json(raw: str) -> dict:
@@ -1001,6 +1155,10 @@ class GraphTypeStore:
     @staticmethod
     def _bundle_to_json(bundle: GraphTypeBundleV1) -> str:
         return json.dumps(bundle.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _payload_to_json(payload: dict[str, Any]) -> str:
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     @staticmethod
     def _bundle_from_json(raw: str) -> GraphTypeBundleV1:

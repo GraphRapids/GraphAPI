@@ -12,6 +12,11 @@ from graphapi.layoutset_store import LayoutSetStore
 from graphapi.linkset_defaults import default_link_set_create_request
 from graphapi.linkset_store import LinkSetStore
 from graphapi.theme_store import ThemeStore
+from graphapi.graph_type_contract import (
+    compute_graph_type_checksum,
+    compute_graph_type_runtime_checksum,
+    compute_layout_set_checksum,
+)
 
 
 def _column_names(conn: sqlite3.Connection, table_name: str) -> set[str]:
@@ -33,6 +38,29 @@ def _bootstrap_runtime_store(db_path):
     graph_type_store.ensure_default_graph_type(default_graph_type_create_request())
 
     return iconset_store, layout_set_store, link_set_store, graph_type_store
+
+
+def _legacy_layout_settings_without_graphrapids_edge_defaults(settings: dict) -> dict:
+    legacy = json.loads(json.dumps(settings))
+    edge_defaults = dict(legacy.get("edge_defaults", {}))
+    properties = dict(edge_defaults.get("properties", {}))
+    properties.pop("graphrapids.edge.marker_start", None)
+    properties.pop("graphrapids.edge.marker_end", None)
+    properties.pop("graphrapids.edge.style", None)
+    edge_defaults["properties"] = properties
+    legacy["edge_defaults"] = edge_defaults
+    return legacy
+
+
+def _layout_checksum_from_settings(bundle_payload: dict, settings: dict) -> str:
+    payload = {
+        "schemaVersion": bundle_payload["schemaVersion"],
+        "layoutSetId": bundle_payload["layoutSetId"],
+        "layoutSetVersion": bundle_payload["layoutSetVersion"],
+        "name": bundle_payload["name"],
+        "elkSettings": settings,
+    }
+    return compute_layout_set_checksum(payload)
 
 
 def test_iconset_schema_survives_extra_columns_without_dropping_data(tmp_path) -> None:
@@ -268,6 +296,187 @@ def test_layoutset_payload_schema_migrates_without_data_loss(tmp_path) -> None:
         assert int(draft_entry_count[0]) > 0
         assert published_entry_count is not None
         assert int(published_entry_count[0]) > 0
+
+
+def test_layoutset_checksum_backfill_updates_legacy_edge_defaults(tmp_path) -> None:
+    runtime_db_path = tmp_path / "runtime.v1.sqlite3"
+    _, layout_set_store, _, _ = _bootstrap_runtime_store(runtime_db_path)
+
+    draft_bundle = layout_set_store.get_bundle("default", stage="draft")
+    published_bundle = layout_set_store.get_bundle("default", stage="published")
+    draft_payload = draft_bundle.model_dump(mode="json")
+    published_payload = published_bundle.model_dump(mode="json")
+
+    legacy_draft_settings = _legacy_layout_settings_without_graphrapids_edge_defaults(draft_payload["elkSettings"])
+    legacy_published_settings = _legacy_layout_settings_without_graphrapids_edge_defaults(
+        published_payload["elkSettings"]
+    )
+    legacy_draft_checksum = _layout_checksum_from_settings(draft_payload, legacy_draft_settings)
+    legacy_published_checksum = _layout_checksum_from_settings(published_payload, legacy_published_settings)
+
+    with sqlite3.connect(runtime_db_path) as conn:
+        conn.execute(
+            "UPDATE layout_sets SET draft_checksum = ? WHERE layout_set_id = 'default'",
+            (legacy_draft_checksum,),
+        )
+        conn.execute(
+            """
+            UPDATE layout_set_published_versions
+            SET checksum = ?
+            WHERE layout_set_id = 'default' AND layout_set_version = ?
+            """,
+            (legacy_published_checksum, published_bundle.layoutSetVersion),
+        )
+        conn.execute(
+            """
+            UPDATE layout_set_draft_entries
+            SET setting_value_json = ?
+            WHERE layout_set_id = 'default' AND setting_key = 'edge_defaults'
+            """,
+            (json.dumps(legacy_draft_settings["edge_defaults"], sort_keys=True, separators=(",", ":")),),
+        )
+        conn.execute(
+            """
+            UPDATE layout_set_published_entries
+            SET setting_value_json = ?
+            WHERE layout_set_id = 'default' AND layout_set_version = ? AND setting_key = 'edge_defaults'
+            """,
+            (
+                json.dumps(legacy_published_settings["edge_defaults"], sort_keys=True, separators=(",", ":")),
+                published_bundle.layoutSetVersion,
+            ),
+        )
+
+    migrated_store = LayoutSetStore(runtime_db_path)
+    migrated_record = migrated_store.get_layout_set("default")
+    migrated_draft = migrated_record.draft
+    migrated_published = migrated_record.publishedVersions[-1]
+
+    assert migrated_draft.checksum != legacy_draft_checksum
+    assert migrated_published.checksum != legacy_published_checksum
+
+    draft_properties = migrated_draft.elkSettings["edge_defaults"]["properties"]
+    assert draft_properties["graphrapids.edge.marker_start"] == "NONE"
+    assert draft_properties["graphrapids.edge.marker_end"] == "NONE"
+    assert draft_properties["graphrapids.edge.style"] == "SOLID"
+
+    with sqlite3.connect(runtime_db_path) as conn:
+        repaired_draft_checksum = conn.execute(
+            "SELECT draft_checksum FROM layout_sets WHERE layout_set_id = 'default'"
+        ).fetchone()
+        repaired_published_checksum = conn.execute(
+            """
+            SELECT checksum
+            FROM layout_set_published_versions
+            WHERE layout_set_id = 'default' AND layout_set_version = ?
+            """,
+            (published_bundle.layoutSetVersion,),
+        ).fetchone()
+
+    assert repaired_draft_checksum is not None
+    assert str(repaired_draft_checksum[0]) == migrated_draft.checksum
+    assert repaired_published_checksum is not None
+    assert str(repaired_published_checksum[0]) == migrated_published.checksum
+
+
+def test_graphtype_checksum_backfill_updates_stale_layout_refs(tmp_path) -> None:
+    runtime_db_path = tmp_path / "runtime.v1.sqlite3"
+    _, layout_set_store, _, graph_type_store = _bootstrap_runtime_store(runtime_db_path)
+
+    stale_layout_checksum = "f" * 64
+    assert stale_layout_checksum != layout_set_store.get_bundle("default", stage="published").checksum
+
+    stale_draft_payload = graph_type_store.get_bundle("default", stage="draft").model_dump(mode="json")
+    stale_published_payload = graph_type_store.get_bundle("default", stage="published").model_dump(mode="json")
+    stale_draft_payload["layoutSetRef"]["checksum"] = stale_layout_checksum
+    stale_published_payload["layoutSetRef"]["checksum"] = stale_layout_checksum
+    stale_draft_payload["runtimeChecksum"] = compute_graph_type_runtime_checksum(stale_draft_payload)
+    stale_draft_payload["checksum"] = compute_graph_type_checksum(stale_draft_payload)
+    stale_published_payload["runtimeChecksum"] = compute_graph_type_runtime_checksum(stale_published_payload)
+    stale_published_payload["checksum"] = compute_graph_type_checksum(stale_published_payload)
+
+    with sqlite3.connect(runtime_db_path) as conn:
+        conn.execute(
+            """
+            UPDATE graph_types
+            SET
+                draft_checksum = ?,
+                draft_runtime_checksum = ?,
+                draft_icon_set_resolution_checksum = ?,
+                draft_payload = ?
+            WHERE graph_type_id = 'default'
+            """,
+            (
+                stale_draft_payload["checksum"],
+                stale_draft_payload["runtimeChecksum"],
+                stale_draft_payload["iconSetResolutionChecksum"],
+                json.dumps(stale_draft_payload, sort_keys=True, separators=(",", ":")),
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE graph_type_published_versions
+            SET
+                checksum = ?,
+                runtime_checksum = ?,
+                icon_set_resolution_checksum = ?,
+                payload = ?
+            WHERE graph_type_id = 'default' AND graph_type_version = ?
+            """,
+            (
+                stale_published_payload["checksum"],
+                stale_published_payload["runtimeChecksum"],
+                stale_published_payload["iconSetResolutionChecksum"],
+                json.dumps(stale_published_payload, sort_keys=True, separators=(",", ":")),
+                stale_published_payload["graphTypeVersion"],
+            ),
+        )
+
+    migrated_iconset_store = IconsetStore(runtime_db_path)
+    migrated_layout_store = LayoutSetStore(runtime_db_path)
+    migrated_link_store = LinkSetStore(runtime_db_path)
+    migrated_graph_store = GraphTypeStore(
+        runtime_db_path,
+        migrated_iconset_store,
+        migrated_layout_store,
+        migrated_link_store,
+    )
+
+    expected_layout_checksum = migrated_layout_store.get_bundle("default", stage="published").checksum
+    migrated_draft = migrated_graph_store.get_bundle("default", stage="draft")
+    migrated_published = migrated_graph_store.get_bundle("default", stage="published")
+
+    assert migrated_draft.layoutSetRef.checksum == expected_layout_checksum
+    assert migrated_published.layoutSetRef.checksum == expected_layout_checksum
+    assert migrated_draft.checksum != stale_draft_payload["checksum"]
+    assert migrated_published.checksum != stale_published_payload["checksum"]
+
+    with sqlite3.connect(runtime_db_path) as conn:
+        draft_row = conn.execute(
+            """
+            SELECT draft_checksum, draft_runtime_checksum, draft_payload
+            FROM graph_types
+            WHERE graph_type_id = 'default'
+            """
+        ).fetchone()
+        published_row = conn.execute(
+            """
+            SELECT checksum, runtime_checksum, payload
+            FROM graph_type_published_versions
+            WHERE graph_type_id = 'default' AND graph_type_version = ?
+            """,
+            (migrated_published.graphTypeVersion,),
+        ).fetchone()
+
+    assert draft_row is not None
+    assert str(draft_row[0]) == migrated_draft.checksum
+    assert str(draft_row[1]) == migrated_draft.runtimeChecksum
+    assert json.loads(str(draft_row[2]))["layoutSetRef"]["checksum"] == expected_layout_checksum
+
+    assert published_row is not None
+    assert str(published_row[0]) == migrated_published.checksum
+    assert str(published_row[1]) == migrated_published.runtimeChecksum
+    assert json.loads(str(published_row[2]))["layoutSetRef"]["checksum"] == expected_layout_checksum
 
 
 def test_theme_legacy_json_import_migrates_to_sqlite(tmp_path) -> None:
