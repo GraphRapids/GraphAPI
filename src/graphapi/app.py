@@ -65,6 +65,8 @@ from .profile_contract import (
     ThemeVariableUpsertRequestV1,
     ThemeVariablesResponseV1,
 )
+from .property_catalog import build_property_catalog
+from .property_catalog_contract import PropertyCatalogElementV1, PropertyCatalogResponseV1
 from .theme_defaults import default_theme_create_request
 from .theme_store import ThemeStore, ThemeStoreError
 
@@ -274,6 +276,17 @@ def minimal_input_schema() -> JSONResponse:
     schema_path = resources.files("graphloom").joinpath("schemas/minimal-input.schema.json")
     schema_text = schema_path.read_text(encoding="utf-8")
     return JSONResponse(content=json.loads(schema_text))
+
+
+@app.get(
+    "/v1/property-catalog",
+    response_model=PropertyCatalogResponseV1,
+    tags=["property-catalog"],
+)
+def get_property_catalog_v1(
+    element: PropertyCatalogElementV1 | None = Query(default=None),
+) -> PropertyCatalogResponseV1:
+    return build_property_catalog(element=element)
 
 
 @app.get("/v1/icon-sets", response_model=IconsetListResponseV1, tags=["icon-sets"])

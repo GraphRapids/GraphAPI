@@ -545,6 +545,7 @@ def test_openapi_includes_modular_v1_contract_endpoints(client: TestClient) -> N
     assert "/v1/themes/{id}/variables" in paths
     assert "/v1/themes/{id}/variables/{key}" in paths
     assert "/v1/autocomplete/catalog" in paths
+    assert "/v1/property-catalog" in paths
     assert "/render/svg" in paths
 
     assert "/v1/profiles" not in paths
@@ -556,3 +557,4 @@ def test_openapi_includes_modular_v1_contract_endpoints(client: TestClient) -> N
     assert "LayoutSetBundleV1" in schemas
     assert "LinkSetBundleV1" in schemas
     assert "AutocompleteCatalogResponseV1" in schemas
+    assert "PropertyCatalogResponseV1" in schemas

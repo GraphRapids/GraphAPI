@@ -78,6 +78,7 @@ GraphAPI is the canonical runtime service for GraphRapids consumers.
 - `DELETE /v1/icon-sets/{id}/entries/{key}`
 - `POST /v1/icon-sets/{id}/publish`
 - `POST /v1/icon-sets/resolve`
+- `GET /v1/property-catalog`
 
 ### Graph Type Schema (v1)
 
@@ -113,6 +114,18 @@ If omitted, runtime edge overrides default to:
 - `graphrapids.edge.marker_start = NONE`
 - `graphrapids.edge.marker_end = NONE`
 - `graphrapids.edge.style = SOLID`
+
+### Property Catalog (v1)
+
+`GET /v1/property-catalog` exposes discoverable property metadata for CRUD UIs.
+
+- Optional query: `element=canvas|node|subgraph|edge|port|label`
+- Returns:
+  - property keys
+  - value types
+  - enum values (when applicable)
+  - defaults
+  - writable contexts (for example `layoutSet.elkSettings` or `linkSet.entries[*].elkProperties`)
 
 ### Render Theme Schema (v1)
 
