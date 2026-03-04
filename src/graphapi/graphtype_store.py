@@ -614,10 +614,18 @@ class GraphTypeStore:
         )
 
         edge_defaults = dict(layout_bundle.elkSettings.get("edge_defaults", {}))
-        edge_type_overrides = build_edge_type_overrides(
-            base_edge_defaults=edge_defaults,
-            link_entries=link_bundle.entries,
-        )
+        try:
+            edge_type_overrides = build_edge_type_overrides(
+                base_edge_defaults=edge_defaults,
+                link_entries=link_bundle.entries,
+            )
+        except ValueError as exc:
+            raise GraphTypeStoreError(
+                status_code=500,
+                code="GRAPH_TYPE_RUNTIME_INVALID",
+                message="Resolved graph type runtime settings failed GraphLoom validation.",
+                details={"errors": [{"msg": str(exc), "type": "value_error"}]},
+            ) from exc
 
         resolved_elk_settings = dict(layout_bundle.elkSettings)
         resolved_elk_settings["type_icon_map"] = dict(sorted(resolved_entries.items(), key=lambda item: item[0]))

@@ -101,6 +101,19 @@ Each bundle carries:
 - `updatedAt`
 - `checksum`
 
+Link-set `entries[*].elkProperties` supports GraphRapids edge styling keys:
+
+- `graphrapids.edge.marker_start` / `graphrapids.edge.marker_end`:
+  `NONE | OPEN_ARROW | HOLLOW_ARROW | SOLID_ARROW | HOLLOW_DIAMOND | SOLID_DIAMOND`
+- `graphrapids.edge.style`:
+  `SOLID | DASH | DOT | DASH_DOT | LONG_DASH_DOT`
+
+If omitted, runtime edge overrides default to:
+
+- `graphrapids.edge.marker_start = NONE`
+- `graphrapids.edge.marker_end = NONE`
+- `graphrapids.edge.style = SOLID`
+
 ### Render Theme Schema (v1)
 
 Each theme bundle carries:

@@ -22,6 +22,7 @@ from .graph_type_contract import (
     LayoutSetUpdateRequestV1,
     compute_layout_set_checksum,
     normalize_layout_setting_key,
+    normalize_graphrapids_edge_properties,
     utcnow,
 )
 
@@ -659,6 +660,13 @@ class LayoutSetStore:
             canonical["type_icon_map"] = {}
             canonical["edge_type_overrides"] = {}
             validated = ElkSettings.model_validate(canonical)
+            dumped = validated.model_dump(by_alias=True, exclude_none=True, mode="json")
+            edge_defaults = dumped.get("edge_defaults")
+            if isinstance(edge_defaults, dict):
+                edge_defaults["properties"] = normalize_graphrapids_edge_properties(
+                    dict(edge_defaults.get("properties", {})),
+                    apply_defaults=True,
+                )
         except ValidationError as exc:
             raise LayoutSetStoreError(
                 status_code=400,
@@ -666,8 +674,22 @@ class LayoutSetStore:
                 message="elkSettings failed GraphLoom validation.",
                 details={"errors": exc.errors()},
             ) from exc
+        except ValueError as exc:
+            raise LayoutSetStoreError(
+                status_code=400,
+                code="INVALID_ELK_SETTINGS",
+                message="elkSettings failed GraphLoom validation.",
+                details={
+                    "errors": [
+                        {
+                            "loc": ("edge_defaults", "properties"),
+                            "msg": str(exc),
+                            "type": "value_error",
+                        }
+                    ]
+                },
+            ) from exc
 
-        dumped = validated.model_dump(by_alias=True, exclude_none=True, mode="json")
         dumped.pop("type_icon_map", None)
         dumped.pop("edge_type_overrides", None)
         return dumped

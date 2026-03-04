@@ -43,6 +43,30 @@ ELK_EDGE_TYPE_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LAYOUT_SETTING_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 RESERVED_LAYOUT_SETTING_KEYS = {"type_icon_map", "edge_type_overrides"}
 
+GRAPH_RAPIDS_EDGE_MARKER_START_KEY = "graphrapids.edge.marker_start"
+GRAPH_RAPIDS_EDGE_MARKER_END_KEY = "graphrapids.edge.marker_end"
+GRAPH_RAPIDS_EDGE_STYLE_KEY = "graphrapids.edge.style"
+
+EDGE_MARKER_VALUES = frozenset(
+    {
+        "NONE",
+        "OPEN_ARROW",
+        "HOLLOW_ARROW",
+        "SOLID_ARROW",
+        "HOLLOW_DIAMOND",
+        "SOLID_DIAMOND",
+    }
+)
+EDGE_STYLE_VALUES = frozenset(
+    {
+        "SOLID",
+        "DASH",
+        "DOT",
+        "DASH_DOT",
+        "LONG_DASH_DOT",
+    }
+)
+
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -80,6 +104,53 @@ def normalize_graph_type_id(value: str) -> str:
     if not GRAPH_TYPE_ID_PATTERN.fullmatch(normalized):
         raise ValueError("graphTypeId must match ^[a-z0-9][a-z0-9_-]{1,63}$")
     return normalized
+
+
+def normalize_graphrapids_edge_properties(
+    properties: dict[str, Any],
+    *,
+    apply_defaults: bool,
+) -> dict[str, Any]:
+    normalized = dict(properties)
+
+    if apply_defaults:
+        normalized.setdefault(GRAPH_RAPIDS_EDGE_MARKER_START_KEY, "NONE")
+        normalized.setdefault(GRAPH_RAPIDS_EDGE_MARKER_END_KEY, "NONE")
+        normalized.setdefault(GRAPH_RAPIDS_EDGE_STYLE_KEY, "SOLID")
+
+    _validate_enum_property(
+        normalized,
+        GRAPH_RAPIDS_EDGE_MARKER_START_KEY,
+        EDGE_MARKER_VALUES,
+    )
+    _validate_enum_property(
+        normalized,
+        GRAPH_RAPIDS_EDGE_MARKER_END_KEY,
+        EDGE_MARKER_VALUES,
+    )
+    _validate_enum_property(
+        normalized,
+        GRAPH_RAPIDS_EDGE_STYLE_KEY,
+        EDGE_STYLE_VALUES,
+    )
+    return normalized
+
+
+def _validate_enum_property(
+    properties: dict[str, Any],
+    key: str,
+    allowed_values: frozenset[str],
+) -> None:
+    if key not in properties:
+        return
+
+    raw_value = properties[key]
+    normalized_value = str(raw_value).strip().upper() if isinstance(raw_value, str) else raw_value
+    if normalized_value not in allowed_values:
+        allowed = ", ".join(sorted(allowed_values))
+        raise ValueError(f"Invalid value for '{key}': {raw_value!r}. Expected one of: {allowed}.")
+
+    properties[key] = normalized_value
 
 
 class LayoutSetEditableFieldsV1(BaseModel):
@@ -234,7 +305,7 @@ class LinkTypeDefinitionV1(BaseModel):
             if not key:
                 raise ValueError("elkProperties keys must not be empty.")
             normalized[key] = raw_value
-        return normalized
+        return normalize_graphrapids_edge_properties(normalized, apply_defaults=False)
 
 
 class LinkSetEntryUpsertRequestV1(LinkTypeDefinitionV1):
@@ -668,10 +739,14 @@ def build_edge_type_overrides(
     overrides: dict[str, dict[str, Any]] = {}
     for key, definition in sorted(link_entries.items(), key=lambda item: item[0]):
         payload = copy.deepcopy(base_edge_defaults)
-        properties = dict(payload.get("properties", {}))
+        properties = normalize_graphrapids_edge_properties(
+            dict(payload.get("properties", {})),
+            apply_defaults=True,
+        )
         if definition.elkEdgeType:
             properties["org.eclipse.elk.edge.type"] = definition.elkEdgeType
         properties.update(definition.elkProperties)
+        properties = normalize_graphrapids_edge_properties(properties, apply_defaults=True)
         payload["properties"] = properties
         overrides[key] = payload
     return overrides

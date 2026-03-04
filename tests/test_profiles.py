@@ -78,6 +78,10 @@ def _new_theme_payload(theme_id: str) -> dict:
 def test_layout_set_crud_publish_flow(client: TestClient) -> None:
     default_bundle = client.get("/v1/layout-sets/default/bundle", params={"stage": "draft"})
     assert default_bundle.status_code == 200
+    edge_properties = default_bundle.json()["elkSettings"]["edge_defaults"]["properties"]
+    assert edge_properties["graphrapids.edge.marker_start"] == "NONE"
+    assert edge_properties["graphrapids.edge.marker_end"] == "NONE"
+    assert edge_properties["graphrapids.edge.style"] == "SOLID"
 
     payload = {
         "layoutSetId": "team-layout",
@@ -139,12 +143,20 @@ def test_link_set_crud_entry_and_publish_flow(client: TestClient) -> None:
         json={
             "label": "Dependency",
             "elkEdgeType": "DIRECTED",
-            "elkProperties": {"org.eclipse.elk.edge.thickness": 2},
+            "elkProperties": {
+                "org.eclipse.elk.edge.thickness": 2,
+                "graphrapids.edge.marker_end": "SOLID_ARROW",
+                "graphrapids.edge.style": "DASH_DOT",
+            },
         },
     )
     assert upsert.status_code == 200
     assert upsert.json()["draft"]["linkSetVersion"] == 2
     assert "dependency" in upsert.json()["draft"]["entries"]
+    assert (
+        upsert.json()["draft"]["entries"]["dependency"]["elkProperties"]["graphrapids.edge.style"]
+        == "DASH_DOT"
+    )
 
     delete = client.delete("/v1/link-sets/team-links/entries/directed")
     assert delete.status_code == 200
@@ -153,6 +165,27 @@ def test_link_set_crud_entry_and_publish_flow(client: TestClient) -> None:
     published = client.post("/v1/link-sets/team-links/publish")
     assert published.status_code == 200
     assert published.json()["linkSetVersion"] == 3
+
+
+def test_link_set_rejects_invalid_graphrapids_edge_enum_value(client: TestClient) -> None:
+    response = client.post(
+        "/v1/link-sets",
+        json={
+            "linkSetId": "invalid-links",
+            "name": "Invalid Links",
+            "entries": {
+                "bad": {
+                    "label": "Bad",
+                    "elkEdgeType": "DIRECTED",
+                    "elkProperties": {"graphrapids.edge.style": "WAVY"},
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any("graphrapids.edge.style" in str(item.get("msg", "")) for item in detail)
 
 
 def test_iconset_crud_and_resolve_flow(client: TestClient) -> None:
@@ -241,7 +274,9 @@ def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, 
                 "directed": {
                     "label": "Directed",
                     "elkEdgeType": "DIRECTED",
-                    "elkProperties": {},
+                    "elkProperties": {
+                        "graphrapids.edge.marker_end": "SOLID_ARROW",
+                    },
                 },
                 "dependency": {
                     "label": "Dependency",
@@ -276,6 +311,15 @@ def test_graph_type_crud_catalog_runtime_and_render_headers(client: TestClient, 
     assert published_body["nodeTypes"] == ["firewall", "gateway", "router"]
     assert published_body["linkTypes"] == ["dependency", "directed"]
     assert published_body["iconSetResolutionChecksum"]
+    dependency_properties = published_body["edgeTypeOverrides"]["dependency"]["properties"]
+    assert dependency_properties["graphrapids.edge.marker_start"] == "NONE"
+    assert dependency_properties["graphrapids.edge.marker_end"] == "NONE"
+    assert dependency_properties["graphrapids.edge.style"] == "SOLID"
+
+    directed_properties = published_body["edgeTypeOverrides"]["directed"]["properties"]
+    assert directed_properties["graphrapids.edge.marker_start"] == "NONE"
+    assert directed_properties["graphrapids.edge.marker_end"] == "SOLID_ARROW"
+    assert directed_properties["graphrapids.edge.style"] == "SOLID"
 
     catalog = client.get(
         "/v1/autocomplete/catalog",
