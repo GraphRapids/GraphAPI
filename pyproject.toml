@@ -53,3 +53,6 @@ graphapi = "graphapi.__main__:main"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = [
+    "integration: marks tests that run against a live service (deselect with '-m \"not integration\"')",
+]

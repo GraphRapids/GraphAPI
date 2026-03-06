@@ -1,0 +1,11 @@
+.git
+.github
+.vscode
+__pycache__
+*.pyc
+*.pyo
+tests/
+*.sqlite3
+*.db
+.env
+.env.*

@@ -1,0 +1,22 @@
+services:
+  graphapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${GRAPHAPI_PORT:-8000}:8000"
+    environment:
+      GRAPHAPI_HOST: "0.0.0.0"
+      GRAPHAPI_PORT: "8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
