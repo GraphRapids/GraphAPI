@@ -2,7 +2,7 @@
 name: AI Task
 about: Request an AI-implemented change in this repository
 title: "[AI] "
-labels: "repo:GraphAPI"
+labels: ""
 assignees: ""
 ---
 
@@ -23,7 +23,3 @@ assignees: ""
 
 <!-- Any relevant context: file paths, related code, constraints, API contracts to respect -->
 
-## Optional labels
-
-<!-- Add priority:low, priority:med, or priority:high as needed -->
-<!-- For complex changes needing architecture review: add needs:arch-review -->
