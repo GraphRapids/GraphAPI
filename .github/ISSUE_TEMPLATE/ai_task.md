@@ -1,7 +1,7 @@
 ---
-name: AI Task
+name: Graphras Task
 about: Request an AI-implemented change in this repository
-title: "[AI] "
+title: "[Graphras] "
 labels: ""
 assignees: ""
 ---
