@@ -1,6 +1,6 @@
 ---
 name: Graphras Task
-about: Request an AI-implemented change in this repository
+about: Request a Graphras-implemented change in a suite repository
 title: "[Graphras] "
 labels: ""
 assignees: ""
@@ -19,7 +19,11 @@ assignees: ""
 - [ ]
 - [ ]
 
-## Technical notes for the AI
+## Technical notes for Graphras
 
 <!-- Any relevant context: file paths, related code, constraints, API contracts to respect -->
 
+## Labels to add
+
+<!-- REQUIRED: Add one repo label (e.g. repo:GraphLoom) and optionally priority:low|med|high -->
+<!-- For complex changes needing architecture review: add needs:arch-review -->
