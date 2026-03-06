@@ -52,4 +52,7 @@ graphapi = "graphapi.__main__:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra"
+addopts = "-ra --ignore=tests/integration"
+markers = [
+    "integration: marks tests as integration tests (run against a live service)",
+]
