@@ -10,7 +10,12 @@ async def health() -> dict[str, str]:
     """Health check endpoint.
 
     Returns HTTP 200 with ``{"status": "ok"}``.
-    This is a cross-repo contract used by Graphras and other
-    orchestration tooling to determine service readiness.
+
+    **Cross-repo contract** — Graphras (and potentially other orchestration
+    services) poll this path to determine readiness.  Any change to the
+    route path or response schema must be coordinated across repositories:
+
+    * GraphAPI  – this file
+    * Graphras  – readiness probe configuration
     """
     return {"status": "ok"}

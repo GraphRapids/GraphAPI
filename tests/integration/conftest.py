@@ -12,7 +12,7 @@ def base_url() -> str:
 
     Read from the ``GRAPHAPI_BASE_URL`` environment variable.
     All integration tests are **skipped** when the variable is unset,
-    so running ``pytest`` safely excludes them.
+    so a plain ``pytest`` invocation never attempts network calls.
     """
     url = os.getenv("GRAPHAPI_BASE_URL", "").strip()
     if not url:
@@ -22,6 +22,10 @@ def base_url() -> str:
 
 @pytest.fixture()
 def http_client(base_url: str):
-    """Per-test HTTP client pointed at the live service."""
+    """Per-test HTTP client pointed at the live service.
+
+    A new ``httpx.Client`` is created for every test to avoid shared
+    state (cookies, connection pool exhaustion) between tests.
+    """
     with httpx.Client(base_url=base_url, timeout=10.0) as client:
         yield client
