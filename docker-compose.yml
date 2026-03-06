@@ -1,0 +1,21 @@
+services:
+  graphapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${GRAPHAPI_PORT:-8000}:8000"
+    environment:
+      GRAPHAPI_HOST: "0.0.0.0"
+      GRAPHAPI_PORT: "8000"
+    volumes:
+      - graphapi-data:/home/appuser/.cache/graphapi
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  graphapi-data:
