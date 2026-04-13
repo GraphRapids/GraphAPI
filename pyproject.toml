@@ -11,7 +11,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.111",
-    "uvicorn>=0.30",
+    "uvicorn>=0.44.0",
     "GraphLoom @ git+https://github.com/GraphRapids/GraphLoom.git",
     "GraphRender @ git+https://github.com/GraphRapids/GraphRender.git",
 ]
